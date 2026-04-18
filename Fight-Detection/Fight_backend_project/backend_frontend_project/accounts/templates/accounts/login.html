@@ -1,0 +1,125 @@
+{% load static %}
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Giriş Yap</title>
+    <link rel="stylesheet" href="{% static 'accounts/login.css' %}" />
+  </head>
+
+  <body>
+    <div class="wrap single">
+      <main class="card">
+        <header class="card__header">
+          <div class="card__brand">
+            <img
+              class="card__logo"
+              src="{% static 'img/togu-logo.png' %}"
+              alt="TOGÜ Logo"
+            />
+            <div>
+              <h2>Giriş Yap</h2>
+              <p class="sub">Devam etmek için kullanıcı bilgilerini gir.</p>
+            </div>
+          </div>
+        </header>
+
+        {% if error %}
+        <div class="alert" role="alert">
+          <div class="alert__icon">!</div>
+          <div><b>Hata:</b> {{ error }}</div>
+        </div>
+        {% endif %}
+
+        <form
+          class="form"
+          method="post"
+          action="{% url 'accounts:login' %}"
+          novalidate
+          onsubmit="
+            document.getElementById('loginBtn').disabled = true;
+            document.getElementById('loginBtn').innerText = 'Giriş yapılıyor…';
+          "
+        >
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ next_url }}" />
+
+          <div class="field">
+            <label for="username">Kullanıcı Adı</label>
+            <input
+              id="username"
+              name="username"
+              type="text"
+              placeholder="ör. admin"
+              autocomplete="username"
+              required
+            />
+          </div>
+
+          <div class="field">
+            <label for="password">Şifre</label>
+            <input
+              id="password"
+              name="password"
+              type="password"
+              placeholder="••••••••"
+              autocomplete="current-password"
+              required
+            />
+          </div>
+
+          <button class="btn" id="loginBtn" type="submit">Giriş</button>
+
+          <div class="actions-bottom">
+            <a href="{% url 'accounts:forgot_password' %}" class="pill-link">
+              Şifremi unuttum
+            </a>
+          </div>
+        </form>
+
+        <div class="actions-bottom" style="margin-top: 14px">
+          <a
+            href="{% url 'accounts:admin_login' %}"
+            class="pill-link alt"
+            style="display: inline-flex; justify-content: center; width: 100%"
+          >
+            Admin Panel Girişi
+          </a>
+        </div>
+
+        <section class="devs" aria-label="Geliştiriciler">
+          <div class="devs__title">Geliştiriciler</div>
+          <div class="devs__grid">
+            <a
+              class="devs__item"
+              href="https://www.linkedin.com/in/huseyin-dogan-47136333b/"
+              target="_blank"
+              rel="noopener"
+            >
+              <span class="devs__dot"></span>
+              <span class="devs__name">Hüseyin Doğan</span>
+              <span class="devs__meta">LinkedIn ↗</span>
+            </a>
+
+            <a
+              class="devs__item"
+              href="https://www.linkedin.com/in/ilker-akbal-b963ab25a/"
+              target="_blank"
+              rel="noopener"
+            >
+              <span class="devs__dot"></span>
+              <span class="devs__name">İlker Akbal</span>
+              <span class="devs__meta">LinkedIn ↗</span>
+            </a>
+          </div>
+        </section>
+
+        <div class="copyright">
+          © {% now "Y" %} Tokat Gaziosmanpaşa Üniversitesi Yapay Zeka
+          Koordinatörlüğü
+        </div>
+      </main>
+    </div>
+  </body>
+</html>

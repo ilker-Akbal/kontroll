@@ -1,0 +1,118 @@
+{% load static %}
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Güvenlik Dashboard</title>
+    <link rel="stylesheet" href="{% static 'dashboard/dashboard.css' %}?v=2" />
+    <link rel="stylesheet" href="{% static 'navbar/navbar.css' %}?v=3" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar__inner">
+        <div class="topbar__left">
+          <div class="brand">
+            <div class="brand__logo">FD</div>
+            <div class="brand__text">
+              <strong>Fight Detection Dashboard</strong>
+              <span>Canlı kamera izleme ekranı</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="topbar__right">
+          {% if request.user.is_authenticated %}
+          <div class="userbox">
+            <div class="userbox__meta">
+              <span class="userbox__welcome">Hoş geldin</span>
+              <strong class="userbox__name">{{ request.user.username }}</strong>
+              {% if request.user.profile %}
+              <span class="userbox__role">{{ request.user.profile.role }}</span>
+              {% endif %}
+            </div>
+
+            <form
+              method="post"
+              action="{% url 'accounts:logout' %}"
+              class="logout-form"
+            >
+              {% csrf_token %}
+              <button type="submit" class="logout-btn">Çıkış Yap</button>
+            </form>
+          </div>
+          {% else %}
+          <a href="{% url 'accounts:login' %}" class="login-link">Giriş Yap</a>
+          {% endif %}
+        </div>
+      </div>
+    </header>
+
+    <main class="page-shell">
+      <div class="page" style="grid-template-columns: 1fr;">
+        <section class="panel right-panel">
+          <div class="panel__header">
+            <h2>Bağlı Kameralar</h2>
+            <p>Bu ekranda sistemde aktif durumda olan tüm kameralar görünür.</p>
+          </div>
+
+          <div class="camera-cards">
+            {% for camera in cameras %}
+            <div class="camera-card">
+              <div class="camera-card__header">
+                <strong>{{ camera.name }}</strong>
+                <span>Aktif</span>
+              </div>
+
+              <div class="camera-card__stream">
+                <img
+                  src="{% url 'dashboard:stream' camera.camera_id %}"
+                  alt="{{ camera.name }} canlı akış"
+                />
+              </div>
+
+              <div class="camera-card__meta">
+                <div>
+                  <strong>Kamera ID</strong>
+                  <br />
+                  {{ camera.camera_id }}
+                </div>
+
+                <div>
+                  <strong>Kaynak</strong>
+                  <br />
+                  <span class="camera-source-text">{{ camera.source }}</span>
+                </div>
+
+                <div>
+                  <strong>Açıklama</strong>
+                  <br />
+                  {% if camera.description %}
+                    {{ camera.description }}
+                  {% else %}
+                    Açıklama girilmemiş.
+                  {% endif %}
+                </div>
+
+                <div>
+                  <strong>Durum</strong>
+                  <br />
+                  {% if camera.is_active %}
+                    İzlemeye uygun
+                  {% else %}
+                    Pasif
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+            {% empty %}
+            <div class="empty-state">
+              Şu anda sistemde aktif kamera bulunmuyor.
+            </div>
+            {% endfor %}
+          </div>
+        </section>
+      </div>
+    </main>
+  </body>
+</html>

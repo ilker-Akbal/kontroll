@@ -1,0 +1,19 @@
+model:
+  num_classes: 2
+  ckpt_path: weights/best_ft_r3d18.pt
+  device: cuda
+  amp: true
+
+input:
+  clip_len: 64
+  size: 224
+  fps_sample: 16
+
+inference:
+  batch: 4
+  agg: mean
+  thr_confident: 0.6
+  thr_borderline: 0.45
+  evidence_max_clip: 0.7
+  evidence_clip_thr: 0.55
+  evidence_ratio: 0.25

@@ -1,0 +1,51 @@
+{% extends "adminx/base.html" %} {% block title %}{{ page_title }}{% endblock %}
+{% block page_title %}{{ page_title }}{% endblock %} {% block page_desc %}Kamera
+bilgilerini doldur{% endblock %} {% block content %}
+<div class="card">
+  <form method="post" class="form-grid">
+    {% csrf_token %}
+
+    <div class="field">
+      <label for="{{ form.name.id_for_label }}">Kamera Adı</label>
+      {{ form.name }}
+      <small class="muted">Örnek: Giriş Kapısı Kamera 1</small>
+      {{ form.name.errors }}
+    </div>
+
+    <div class="field">
+      <label for="{{ form.camera_id.id_for_label }}">Camera ID</label>
+      {{ form.camera_id }}
+      <small class="muted">
+        Sadece kısa kimlik gir. Dosya yolu girme. Örnek: cam_01, giris_kapi,
+        fight_test
+      </small>
+      {{ form.camera_id.errors }}
+    </div>
+
+    <div class="field">
+      <label for="{{ form.source.id_for_label }}">Kaynak</label>
+      {{ form.source }}
+      <small class="muted">
+        Gerçek kaynak buraya yazılır. Örnek: 0, rtsp://..., http://...,
+        C:/.../fight.mp4
+      </small>
+      {{ form.source.errors }}
+    </div>
+
+    <div class="field">
+      <label for="{{ form.description.id_for_label }}">Açıklama</label>
+      {{ form.description }} {{ form.description.errors }}
+    </div>
+
+    <div class="field">
+      <label for="{{ form.is_active.id_for_label }}">Aktif mi?</label>
+      {{ form.is_active }} {{ form.is_active.errors }}
+    </div>
+
+    <div class="actions">
+      <button type="submit" class="btn success">{{ submit_label }}</button>
+      <a href="{% url 'adminx:camera_list' %}" class="btn secondary">İptal</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

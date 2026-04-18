@@ -1,0 +1,20 @@
+{% extends "adminx/base.html" %} {% block title %}Admin Dashboard{% endblock %}
+{% block page_title %}Admin Dashboard{% endblock %} {% block page_desc %}Sistem
+özeti ve hızlı işlemler{% endblock %} {% block content %}
+<div class="grid-3">
+  <div class="card stat">
+    <h3>Toplam Kamera</h3>
+    <div class="value">{{ camera_count }}</div>
+  </div>
+
+  <div class="card stat">
+    <h3>Aktif Kamera</h3>
+    <div class="value">{{ active_camera_count }}</div>
+  </div>
+
+  <div class="card stat">
+    <h3>Pasif Kamera</h3>
+    <div class="value">{{ passive_camera_count }}</div>
+  </div>
+</div>
+{% endblock %}
