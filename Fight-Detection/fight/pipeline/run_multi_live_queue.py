@@ -4,6 +4,7 @@ import argparse
 import csv
 import json
 import logging
+import os
 import queue
 import signal
 import threading
@@ -22,9 +23,9 @@ from fight.pipeline.clip_buffer import save_clip_mp4
 from fight.pipeline.pair_selector import LivePairRoiController
 from fight.pipeline.person_stabilizer import TemporalPersonStabilizer
 from fight.pipeline.utils import crop_from_box, open_source, sanitize_box
+from fight.pipeline.incident_aggregator import IncidentAggregator, Stage3Result
 from fight.pose.src.pose_adapter import PoseAdapter
 from fight.pose.src.pose_gate import PoseGate
-
 
 LOG = logging.getLogger("multi_live")
 
@@ -37,36 +38,43 @@ def ts_to_str(ts: float) -> str:
     return datetime.fromtimestamp(float(ts)).strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
 
 
-class JsonlWriter:
-    def __init__(self, path: Path):
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.lock = threading.Lock()
+def safe_cuda_optimize() -> None:
+    try:
+        import torch
 
-    def write(self, row: dict) -> None:
-        line = json.dumps(row, ensure_ascii=False)
-        with self.lock:
-            with open(self.path, "a", encoding="utf-8") as f:
-                f.write(line + "\n")
+        if torch.cuda.is_available():
+            try:
+                torch.backends.cudnn.benchmark = True
+            except Exception:
+                pass
+            try:
+                torch.backends.cuda.matmul.allow_tf32 = True
+            except Exception:
+                pass
+            try:
+                torch.backends.cudnn.allow_tf32 = True
+            except Exception:
+                pass
+            try:
+                torch.set_float32_matmul_precision("high")
+            except Exception:
+                pass
+    except Exception:
+        pass
 
 
-class CsvWriter:
-    def __init__(self, path: Path, fieldnames: List[str]):
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.fieldnames = list(fieldnames)
-        self.lock = threading.Lock()
-        if not self.path.exists():
-            with open(self.path, "w", newline="", encoding="utf-8") as f:
-                w = csv.DictWriter(f, fieldnames=self.fieldnames)
-                w.writeheader()
+def configure_runtime(args) -> None:
+    try:
+        cv2.setNumThreads(max(1, int(args.cv2_threads)))
+    except Exception:
+        pass
 
-    def write(self, row: dict) -> None:
-        data = {k: row.get(k, "") for k in self.fieldnames}
-        with self.lock:
-            with open(self.path, "a", newline="", encoding="utf-8") as f:
-                w = csv.DictWriter(f, fieldnames=self.fieldnames)
-                w.writerow(data)
+    os.environ.setdefault("OMP_NUM_THREADS", str(max(1, int(args.cv2_threads))))
+    os.environ.setdefault("MKL_NUM_THREADS", str(max(1, int(args.cv2_threads))))
+    os.environ.setdefault("NUMEXPR_NUM_THREADS", str(max(1, int(args.cv2_threads))))
+    os.environ.setdefault("OPENBLAS_NUM_THREADS", str(max(1, int(args.cv2_threads))))
+
+    safe_cuda_optimize()
 
 
 @dataclass
@@ -84,6 +92,13 @@ class Stage3Job:
 
 
 @dataclass
+class ClipSaveJob:
+    clip_path: str
+    frames: List
+    fps: float
+
+
+@dataclass
 class ActiveEvent:
     event_id: str
     camera_id: str
@@ -94,6 +109,251 @@ class ActiveEvent:
     frames: List = field(default_factory=list)
     pose_scores: List[float] = field(default_factory=list)
     positive_hits: int = 0
+
+
+class BufferedJsonlWriter:
+    def __init__(self, path: Path):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._fh = open(self.path, "a", encoding="utf-8")
+
+    def write(self, row: dict) -> None:
+        self._fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+    def flush(self) -> None:
+        self._fh.flush()
+
+    def close(self) -> None:
+        try:
+            self._fh.flush()
+        except Exception:
+            pass
+        try:
+            self._fh.close()
+        except Exception:
+            pass
+
+
+class BufferedCsvWriter:
+    def __init__(self, path: Path, fieldnames: List[str]):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.fieldnames = list(fieldnames)
+        exists = self.path.exists()
+        self._fh = open(self.path, "a", newline="", encoding="utf-8")
+        self._writer = csv.DictWriter(self._fh, fieldnames=self.fieldnames)
+        if not exists:
+            self._writer.writeheader()
+
+    def write(self, row: dict) -> None:
+        data = {k: row.get(k, "") for k in self.fieldnames}
+        self._writer.writerow(data)
+
+    def flush(self) -> None:
+        self._fh.flush()
+
+    def close(self) -> None:
+        try:
+            self._fh.flush()
+        except Exception:
+            pass
+        try:
+            self._fh.close()
+        except Exception:
+            pass
+
+
+class ReportHub:
+    def __init__(self, out_dir: Path, flush_interval_sec: float = 0.25):
+        self.out_dir = Path(out_dir)
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+
+        self.events_jsonl = BufferedJsonlWriter(self.out_dir / "events.jsonl")
+        self.stage3_jsonl = BufferedJsonlWriter(self.out_dir / "stage3_results.jsonl")
+        self.status_jsonl = BufferedJsonlWriter(self.out_dir / "camera_status.jsonl")
+
+        self.events_csv = BufferedCsvWriter(
+            self.out_dir / "events.csv",
+            [
+                "camera_id",
+                "ip",
+                "event_id",
+                "event_start",
+                "event_end",
+                "status",
+                "pose_score_max",
+                "pose_score_mean",
+                "positive_hits",
+                "clip_path",
+                "queue_status",
+                "queue_reason",
+            ],
+        )
+        self.stage3_csv = BufferedCsvWriter(
+            self.out_dir / "stage3_results.csv",
+            [
+                "camera_id",
+                "ip",
+                "event_id",
+                "event_start",
+                "event_end",
+                "clip_path",
+                "fight_prob",
+                "fight_label",
+                "pose_score_max",
+                "pose_score_mean",
+            ],
+        )
+
+        self.flush_interval_sec = float(flush_interval_sec)
+        self.q: "queue.Queue[tuple[str, dict]]" = queue.Queue(maxsize=4096)
+        self.stop_event = threading.Event()
+        self.worker = threading.Thread(target=self._run, name="report_hub", daemon=True)
+        self.worker.start()
+
+    def _run(self):
+        last_flush = time.time()
+        while not self.stop_event.is_set() or not self.q.empty():
+            try:
+                kind, row = self.q.get(timeout=0.1)
+            except queue.Empty:
+                if (time.time() - last_flush) >= self.flush_interval_sec:
+                    self._flush_all()
+                    last_flush = time.time()
+                continue
+
+            try:
+                if kind == "status":
+                    self.status_jsonl.write(row)
+                elif kind == "event":
+                    self.events_jsonl.write(row)
+                    self.events_csv.write(row)
+                elif kind == "stage3":
+                    self.stage3_jsonl.write(row)
+                    self.stage3_csv.write(row)
+            finally:
+                self.q.task_done()
+
+            if (time.time() - last_flush) >= self.flush_interval_sec:
+                self._flush_all()
+                last_flush = time.time()
+
+        self._flush_all()
+
+    def _flush_all(self):
+        self.status_jsonl.flush()
+        self.events_jsonl.flush()
+        self.stage3_jsonl.flush()
+        self.events_csv.flush()
+        self.stage3_csv.flush()
+
+    def write_camera_status(self, row: dict):
+        self._put("status", row)
+
+    def write_event(self, row: dict):
+        self._put("event", row)
+
+    def write_stage3(self, row: dict):
+        self._put("stage3", row)
+
+    def _put(self, kind: str, row: dict):
+        try:
+            self.q.put_nowait((kind, row))
+        except queue.Full:
+            # statü dolarsa yeni statü düşebilir, event/stage3 düşmesin diye blokla
+            if kind == "status":
+                try:
+                    self.q.get_nowait()
+                    self.q.task_done()
+                except Exception:
+                    pass
+                try:
+                    self.q.put_nowait((kind, row))
+                except Exception:
+                    pass
+            else:
+                self.q.put((kind, row))
+
+    def close(self):
+        self.stop_event.set()
+        self.worker.join(timeout=5.0)
+        self._flush_all()
+        self.status_jsonl.close()
+        self.events_jsonl.close()
+        self.stage3_jsonl.close()
+        self.events_csv.close()
+        self.stage3_csv.close()
+
+
+class PreviewWriter(threading.Thread):
+    def __init__(self, stop_event: threading.Event, write_interval_sec: float, jpeg_quality: int):
+        super().__init__(name="preview_writer", daemon=True)
+        self.stop_event = stop_event
+        self.write_interval_sec = float(write_interval_sec)
+        self.jpeg_quality = int(jpeg_quality)
+        self.lock = threading.Lock()
+        self.latest: Dict[str, Tuple[Path, object]] = {}
+        self.last_written: Dict[str, float] = {}
+
+    def submit(self, camera_id: str, path: Path, frame_bgr):
+        with self.lock:
+            self.latest[camera_id] = (Path(path), frame_bgr.copy())
+
+    def run(self):
+        while not self.stop_event.is_set():
+            batch: Dict[str, Tuple[Path, object]] = {}
+            with self.lock:
+                if self.latest:
+                    batch = dict(self.latest)
+                    self.latest.clear()
+
+            now_ts = time.time()
+            for camera_id, (path, frame) in batch.items():
+                last_ts = self.last_written.get(camera_id, 0.0)
+                if (now_ts - last_ts) < self.write_interval_sec:
+                    with self.lock:
+                        self.latest[camera_id] = (path, frame)
+                    continue
+
+                try:
+                    ok, buf = cv2.imencode(
+                        ".jpg",
+                        frame,
+                        [int(cv2.IMWRITE_JPEG_QUALITY), self.jpeg_quality],
+                    )
+                    if ok:
+                        tmp_path = str(path) + ".tmp.jpg"
+                        with open(tmp_path, "wb") as f:
+                            f.write(buf.tobytes())
+                        os.replace(tmp_path, str(path))
+                        self.last_written[camera_id] = now_ts
+                except Exception:
+                    pass
+
+            time.sleep(0.03)
+
+
+class ClipWriter(threading.Thread):
+    def __init__(self, stop_event: threading.Event, q: "queue.Queue[ClipSaveJob]"):
+        super().__init__(name="clip_writer", daemon=True)
+        self.stop_event = stop_event
+        self.q = q
+
+    def run(self):
+        LOG.info("[CLIP] writer started")
+        while not self.stop_event.is_set() or not self.q.empty():
+            try:
+                job = self.q.get(timeout=0.2)
+            except queue.Empty:
+                continue
+
+            try:
+                save_clip_mp4(job.frames, job.clip_path, fps=float(job.fps))
+            except Exception as exc:
+                LOG.exception("[CLIP] failed for %s: %s", job.clip_path, exc)
+            finally:
+                self.q.task_done()
+        LOG.info("[CLIP] writer stopped")
 
 
 class SharedModels:
@@ -157,60 +417,6 @@ class RuntimeStateHub:
             return self.by_camera.get(camera_id, {}).copy()
 
 
-class ReportHub:
-    def __init__(self, out_dir: Path):
-        self.out_dir = Path(out_dir)
-        self.out_dir.mkdir(parents=True, exist_ok=True)
-
-        self.events_jsonl = JsonlWriter(self.out_dir / "events.jsonl")
-        self.stage3_jsonl = JsonlWriter(self.out_dir / "stage3_results.jsonl")
-        self.status_jsonl = JsonlWriter(self.out_dir / "camera_status.jsonl")
-
-        self.events_csv = CsvWriter(
-            self.out_dir / "events.csv",
-            [
-                "camera_id",
-                "ip",
-                "event_id",
-                "event_start",
-                "event_end",
-                "status",
-                "pose_score_max",
-                "pose_score_mean",
-                "positive_hits",
-                "clip_path",
-                "queue_status",
-                "queue_reason",
-            ],
-        )
-        self.stage3_csv = CsvWriter(
-            self.out_dir / "stage3_results.csv",
-            [
-                "camera_id",
-                "ip",
-                "event_id",
-                "event_start",
-                "event_end",
-                "clip_path",
-                "fight_prob",
-                "fight_label",
-                "pose_score_max",
-                "pose_score_mean",
-            ],
-        )
-
-    def write_camera_status(self, row: dict):
-        self.status_jsonl.write(row)
-
-    def write_event(self, row: dict):
-        self.events_jsonl.write(row)
-        self.events_csv.write(row)
-
-    def write_stage3(self, row: dict):
-        self.stage3_jsonl.write(row)
-        self.stage3_csv.write(row)
-
-
 class Stage3Worker(threading.Thread):
     def __init__(
         self,
@@ -220,6 +426,7 @@ class Stage3Worker(threading.Thread):
         runtime_state: RuntimeStateHub,
         q: "queue.Queue[Stage3Job]",
         fight_thr: float,
+        incident_aggregator: IncidentAggregator,
     ):
         super().__init__(name="stage3_worker", daemon=True)
         self.stop_event = stop_event
@@ -228,6 +435,7 @@ class Stage3Worker(threading.Thread):
         self.runtime_state = runtime_state
         self.q = q
         self.fight_thr = float(fight_thr)
+        self.incident_aggregator = incident_aggregator
 
     def run(self):
         LOG.info("[STAGE3] worker started")
@@ -250,7 +458,21 @@ class Stage3Worker(threading.Thread):
 
                 prob = self.shared.stage3_infer(job.frames)
                 label = "fight" if prob >= self.fight_thr else "non_fight"
-
+                self.incident_aggregator.submit(
+                Stage3Result(
+                    camera_id=job.camera_id,
+                    source=job.source,
+                    event_id=job.event_id,
+                    event_start_ts=job.event_start_ts,
+                    event_end_ts=job.event_end_ts,
+                    clip_path=job.clip_path,
+                    fight_prob=float(prob),
+                    fight_label=label,
+                    pose_score_max=float(job.pose_score_max),
+                    pose_score_mean=float(job.pose_score_mean),
+                )
+            )
+                self.incident_aggregator.flush_expired()
                 row = {
                     "camera_id": job.camera_id,
                     "ip": job.source,
@@ -336,6 +558,8 @@ class CameraWorker(threading.Thread):
         report_hub: ReportHub,
         runtime_state: RuntimeStateHub,
         stage3_queue: "queue.Queue[Stage3Job]",
+        clip_queue: "queue.Queue[ClipSaveJob]",
+        preview_writer: PreviewWriter,
         args,
     ):
         super().__init__(name=f"cam_{camera_id}", daemon=True)
@@ -347,6 +571,8 @@ class CameraWorker(threading.Thread):
         self.report_hub = report_hub
         self.runtime_state = runtime_state
         self.stage3_queue = stage3_queue
+        self.clip_queue = clip_queue
+        self.preview_writer = preview_writer
         self.args = args
 
         self.motion = MotionAdapter(args.motion_config)
@@ -397,7 +623,7 @@ class CameraWorker(threading.Thread):
         self.previews_dir.mkdir(parents=True, exist_ok=True)
 
         self.preview_path = self.previews_dir / f"{self.camera_id}.jpg"
-        self.preview_every = 1
+        self.preview_every = max(1, int(args.preview_every_frames))
 
         self.status_log_every = int(max(1, args.status_log_every))
 
@@ -425,6 +651,10 @@ class CameraWorker(threading.Thread):
         self.cap = open_source(self.source)
         if not self.cap.isOpened():
             raise RuntimeError(f"Cannot open source: {self.source}")
+        try:
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        except Exception:
+            pass
 
     def _safe_reset_for_idle(self):
         self.person_stabilizer.reset()
@@ -509,8 +739,22 @@ class CameraWorker(threading.Thread):
             f"{datetime.fromtimestamp(ev.start_ts).strftime('%Y%m%d_%H%M%S_%f')[:-3]}.mp4"
         )
         clip_path = self.clips_dir / clip_name
+
         if ev.frames:
-            save_clip_mp4(ev.frames, str(clip_path), fps=float(self.args.clip_fps))
+            try:
+                self.clip_queue.put_nowait(
+                    ClipSaveJob(
+                        clip_path=str(clip_path),
+                        frames=list(ev.frames),
+                        fps=float(self.args.clip_fps),
+                    )
+                )
+            except queue.Full:
+                LOG.warning("[CAM %s] clip queue full; saving synchronously %s", self.camera_id, clip_path)
+                try:
+                    save_clip_mp4(ev.frames, str(clip_path), fps=float(self.args.clip_fps))
+                except Exception as exc:
+                    LOG.exception("[CAM %s] sync clip save failed: %s", self.camera_id, exc)
 
         queue_status = "not_requested"
         queue_reason = reason
@@ -673,11 +917,8 @@ class CameraWorker(threading.Thread):
         except Exception:
             return frame_bgr
 
-    def _write_preview(self, frame_bgr):
-        try:
-            cv2.imwrite(str(self.preview_path), frame_bgr)
-        except Exception:
-            pass
+    def _submit_preview(self, frame_bgr):
+        self.preview_writer.submit(self.camera_id, self.preview_path, frame_bgr)
 
     def run(self):
         self._status("camera", "starting")
@@ -775,17 +1016,17 @@ class CameraWorker(threading.Thread):
                     queue_capacity=self.stage3_queue.maxsize,
                 )
 
-                preview = self._render_preview(
-                    base_frame,
-                    stage="motion",
-                    detail="inactive",
-                    persons=0,
-                    pose_score=float(self.last_pose_score),
-                    pair_ok=0,
-                    event_active=int(self.active_event is not None),
-                )
                 if self.frame_idx % self.preview_every == 0:
-                    self._write_preview(preview)
+                    preview = self._render_preview(
+                        base_frame,
+                        stage="motion",
+                        detail="inactive",
+                        persons=0,
+                        pose_score=float(self.last_pose_score),
+                        pair_ok=0,
+                        event_active=int(self.active_event is not None),
+                    )
+                    self._submit_preview(preview)
 
                 if self.frame_idx % self.status_log_every == 0:
                     self._status(
@@ -833,17 +1074,17 @@ class CameraWorker(threading.Thread):
                     queue_capacity=self.stage3_queue.maxsize,
                 )
 
-                preview = self._render_preview(
-                    base_frame,
-                    stage="yolo",
-                    detail="not_enough_persons",
-                    persons=len(recent_persons),
-                    pose_score=float(self.last_pose_score),
-                    pair_ok=0,
-                    event_active=int(self.active_event is not None),
-                )
                 if self.frame_idx % self.preview_every == 0:
-                    self._write_preview(preview)
+                    preview = self._render_preview(
+                        base_frame,
+                        stage="yolo",
+                        detail="not_enough_persons",
+                        persons=len(recent_persons),
+                        pose_score=float(self.last_pose_score),
+                        pair_ok=0,
+                        event_active=int(self.active_event is not None),
+                    )
+                    self._submit_preview(preview)
 
                 if self.active_event is not None:
                     if (self.frame_idx - self.active_event.last_positive_frame_idx) > int(self.args.event_close_grace_frames):
@@ -887,17 +1128,17 @@ class CameraWorker(threading.Thread):
                     queue_capacity=self.stage3_queue.maxsize,
                 )
 
-                preview = self._render_preview(
-                    base_frame,
-                    stage="pair",
-                    detail="roi_missing",
-                    persons=len(recent_persons),
-                    pose_score=float(self.last_pose_score),
-                    pair_ok=0,
-                    event_active=int(self.active_event is not None),
-                )
                 if self.frame_idx % self.preview_every == 0:
-                    self._write_preview(preview)
+                    preview = self._render_preview(
+                        base_frame,
+                        stage="pair",
+                        detail="roi_missing",
+                        persons=len(recent_persons),
+                        pose_score=float(self.last_pose_score),
+                        pair_ok=0,
+                        event_active=int(self.active_event is not None),
+                    )
+                    self._submit_preview(preview)
 
                 if self.active_event is not None:
                     if (self.frame_idx - self.active_event.last_positive_frame_idx) > int(self.args.event_close_grace_frames):
@@ -939,17 +1180,17 @@ class CameraWorker(threading.Thread):
                     queue_capacity=self.stage3_queue.maxsize,
                 )
 
-                preview = self._render_preview(
-                    base_frame,
-                    stage="pair",
-                    detail="roi_crop_failed",
-                    persons=len(recent_persons),
-                    pose_score=float(self.last_pose_score),
-                    pair_ok=int(pair_res.get("pair_ok", 0)),
-                    event_active=int(self.active_event is not None),
-                )
                 if self.frame_idx % self.preview_every == 0:
-                    self._write_preview(preview)
+                    preview = self._render_preview(
+                        base_frame,
+                        stage="pair",
+                        detail="roi_crop_failed",
+                        persons=len(recent_persons),
+                        pose_score=float(self.last_pose_score),
+                        pair_ok=int(pair_res.get("pair_ok", 0)),
+                        event_active=int(self.active_event is not None),
+                    )
+                    self._submit_preview(preview)
 
                 if self.active_event is not None:
                     if (self.frame_idx - self.active_event.last_positive_frame_idx) > int(self.args.event_close_grace_frames):
@@ -1008,17 +1249,17 @@ class CameraWorker(threading.Thread):
                 source=self.source,
             )
 
-            preview = self._render_preview(
-                roi_bgr,
-                stage="pipeline",
-                detail="tick",
-                persons=len(recent_persons),
-                pose_score=float(pose_score),
-                pair_ok=int(pair_res.get("pair_ok", 0)),
-                event_active=int(self.active_event is not None),
-            )
             if self.frame_idx % self.preview_every == 0:
-                self._write_preview(preview)
+                preview = self._render_preview(
+                    roi_bgr,
+                    stage="pipeline",
+                    detail="tick",
+                    persons=len(recent_persons),
+                    pose_score=float(pose_score),
+                    pair_ok=int(pair_res.get("pair_ok", 0)),
+                    event_active=int(self.active_event is not None),
+                )
+                self._submit_preview(preview)
 
             if self.frame_idx % self.status_log_every == 0:
                 self._status(
@@ -1140,6 +1381,13 @@ def build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--min-queue-frames", type=int, default=32, help="minimum clip frames before sending to stage3")
     ap.add_argument("--stage3-queue-size", type=int, default=64)
 
+    ap.add_argument("--preview-every-frames", type=int, default=4)
+    ap.add_argument("--preview-write-interval-sec", type=float, default=0.50)
+    ap.add_argument("--preview-jpeg-quality", type=int, default=80)
+    ap.add_argument("--clip-writer-queue-size", type=int, default=32)
+    ap.add_argument("--report-flush-interval-sec", type=float, default=0.25)
+    ap.add_argument("--cv2-threads", type=int, default=1)
+
     ap.add_argument("--output-dir", type=str, default="fight/pipeline/outputs/multi_live")
     ap.add_argument("--run-name", type=str, default="auto")
     return ap
@@ -1157,6 +1405,8 @@ def main():
     ap = build_argparser()
     args = ap.parse_args()
 
+    configure_runtime(args)
+
     cameras = parse_camera_specs(args)
     if not cameras:
         raise SystemExit("No cameras provided. Use --camera camera_id=source or --sources-file list.txt")
@@ -1169,10 +1419,19 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
     args.output_dir = str(output_dir)
 
-    report_hub = ReportHub(output_dir)
+    report_hub = ReportHub(output_dir, flush_interval_sec=float(args.report_flush_interval_sec))
     runtime_state = RuntimeStateHub()
     stop_event = threading.Event()
+    incident_dir = Path(args.output_dir) / "incidents"
+    incident_dir.mkdir(parents=True, exist_ok=True)
 
+    incident_aggregator = IncidentAggregator(
+    out_dir=str(incident_dir),
+    merge_gap_sec=8.0,
+    finalize_idle_sec=8.0,
+    keep_temp_parts=True,
+    write_nonfight_incidents=False,
+)
     shared = SharedModels(
         yolo_config=args.yolo_config,
         yolo_weights=args.yolo_weights,
@@ -1186,6 +1445,15 @@ def main():
         args.min_queue_frames = max(int(args.min_queue_frames), int(shared.stage3_clip_len))
 
     stage3_queue: "queue.Queue[Stage3Job]" = queue.Queue(maxsize=int(args.stage3_queue_size))
+    clip_queue: "queue.Queue[ClipSaveJob]" = queue.Queue(maxsize=int(args.clip_writer_queue_size))
+
+    preview_writer = PreviewWriter(
+        stop_event=stop_event,
+        write_interval_sec=float(args.preview_write_interval_sec),
+        jpeg_quality=int(args.preview_jpeg_quality),
+    )
+    clip_writer = ClipWriter(stop_event=stop_event, q=clip_queue)
+
     stage3_worker = Stage3Worker(
         stop_event=stop_event,
         shared=shared,
@@ -1193,8 +1461,8 @@ def main():
         runtime_state=runtime_state,
         q=stage3_queue,
         fight_thr=float(args.fight_thr),
+        incident_aggregator=incident_aggregator,
     )
-
     workers = [
         CameraWorker(
             camera_id=camera_id,
@@ -1204,6 +1472,8 @@ def main():
             report_hub=report_hub,
             runtime_state=runtime_state,
             stage3_queue=stage3_queue,
+            clip_queue=clip_queue,
+            preview_writer=preview_writer,
             args=args,
         )
         for camera_id, source in cameras
@@ -1221,6 +1491,8 @@ def main():
     for cid, src in cameras:
         LOG.info("camera=%s source=%s", cid, src)
 
+    preview_writer.start()
+    clip_writer.start()
     stage3_worker.start()
     for w in workers:
         w.start()
@@ -1235,7 +1507,16 @@ def main():
         stop_event.set()
         for w in workers:
             w.join(timeout=5.0)
+
+        clip_queue.join()
+        stage3_queue.join()
+
+        clip_writer.join(timeout=10.0)
         stage3_worker.join(timeout=10.0)
+        preview_writer.join(timeout=5.0)
+        incident_aggregator.close_all()
+        report_hub.close()
+
         LOG.info("shutdown complete")
         LOG.info("reports: %s", output_dir)
 

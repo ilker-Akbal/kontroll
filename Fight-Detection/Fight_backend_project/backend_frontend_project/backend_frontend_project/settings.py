@@ -93,7 +93,7 @@ LOGOUT_REDIRECT_URL = '/accounts/login/'
 
 SESSION_COOKIE_AGE = 60 * 60 * 8
 SESSION_EXPIRE_AT_BROWSER_CLOSE = False
-SESSION_SAVE_EVERY_REQUEST = True
+SESSION_SAVE_EVERY_REQUEST = False
 SESSION_COOKIE_HTTPONLY = True
 SESSION_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SAMESITE = 'Lax'
@@ -110,10 +110,34 @@ PIPELINE_DEFAULTS = {
     "yolo_weights": "fight/yolo11n.pt",
     "pose_config": "fight/pose/configs/pose.yaml",
     "stage3_config": "fight/3D_CNN/configs/stage3.yaml",
+
     "person_conf": "0.25",
     "yolo_stride": "2",
     "pose_stride": "2",
     "fight_thr": "0.60",
+
     "use_pose": True,
     "use_stage3": True,
+
+    # yeni eklenen performans / yük dengeleme ayarları
+    "roi_size": "320",
+    "min_persons_for_pose": "2",
+    "pose_hold_frames": "8",
+    "event_close_grace_frames": "12",
+    "prebuffer_frames": "12",
+    "max_event_frames": "160",
+    "clip_fps": "16.0",
+    "reconnect_sec": "1.0",
+    "status_log_every": "30",
+
+    "min_queue_frames": "32",
+    "stage3_queue_size": "64",
+
+    # sistemi hafifleten kritik ayarlar
+    "preview_every_frames": "4",
+    "preview_write_interval_sec": "0.50",
+    "preview_jpeg_quality": "80",
+    "clip_writer_queue_size": "32",
+    "report_flush_interval_sec": "0.25",
+    "cv2_threads": "1",
 }

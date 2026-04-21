@@ -5,8 +5,8 @@
   --bg: #f3f6fb;
   --bg2: #eef2f9;
 
-  --card: rgba(255,255,255,0.92);
-  --card2: rgba(255,255,255,0.88);
+  --card: rgba(255,255,255,0.94);
+  --card2: rgba(255,255,255,0.90);
 
   --text: #0e1726;
   --muted: rgba(14,23,38,0.70);
@@ -21,7 +21,6 @@
   --shadow2: 0 10px 26px rgba(2, 8, 23, 0.08);
 
   --radius: 18px;
-
   --ring-teal: rgba(5, 153, 190, 0.18);
 }
 
@@ -67,7 +66,7 @@ body{
   border-radius: var(--radius);
   background: linear-gradient(180deg, var(--card), var(--card2));
   box-shadow: var(--shadow);
-  padding: 28px;
+  padding: 30px;
 }
 
 .auth-card{
@@ -147,7 +146,7 @@ body{
 
 .form{
   display: grid;
-  gap: 12px;
+  gap: 14px;
 }
 
 .auth-form{
@@ -164,20 +163,25 @@ label{
   font-size: 13px;
   font-weight: 600;
   color: rgba(14,23,38,0.72);
+  margin: 0;
 }
 
+/* TÜM FORM ALANLARI AYNI GÖRÜNÜM */
 input[type="text"],
 input[type="password"],
 input[type="email"],
 select{
   width: 100%;
-  min-height: 50px;
-  padding: 12px 14px;
+  height: 50px;
+  padding: 0 14px;
   border-radius: 14px;
   border: 1px solid rgba(14,23,38,0.14);
-  background: rgba(255,255,255,0.96);
+  background: rgba(240,245,252,0.95);
   color: var(--text);
   outline: none;
+  font-size: 14px;
+  line-height: 1;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.55);
   transition: border-color .15s ease, box-shadow .15s ease, background .15s ease;
 }
 
@@ -189,14 +193,26 @@ input[type="text"]:focus,
 input[type="password"]:focus,
 input[type="email"]:focus,
 select:focus{
-  border-color: rgba(5,153,190,0.48);
+  border-color: rgba(5,153,190,0.42);
   box-shadow: 0 0 0 4px var(--ring-teal);
-  background: #fff;
+  background: #f7fbff;
 }
 
+/* SELECT de şifre kutularıyla aynı görünsün */
 select{
   appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
   cursor: pointer;
+  padding-right: 42px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, rgba(14,23,38,0.70) 50%),
+    linear-gradient(135deg, rgba(14,23,38,0.70) 50%, transparent 50%);
+  background-position:
+    calc(100% - 18px) calc(50% - 3px),
+    calc(100% - 12px) calc(50% - 3px);
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
 }
 
 .error-text{
@@ -401,6 +417,10 @@ select{
   .card,
   .auth-card{
     padding: 22px;
+  }
+
+  .wrap.single{
+    width: 100%;
   }
 
   .card__brand{

@@ -1,0 +1,128 @@
+{% extends "adminx/base.html" %}
+
+{% block title %}Kullanıcılar{% endblock %}
+{% block page_title %}Kullanıcı Yönetimi{% endblock %}
+{% block page_desc %}
+Sisteme kayıtlı kullanıcıları görüntüleyin, onaylayın, reddedin veya silin.
+{% endblock %}
+
+{% block content %}
+<div class="content-stack">
+  <section class="stats-grid">
+    <div class="card stat stat--purple">
+      <h3>Toplam Kullanıcı</h3>
+      <div class="stat__value">{{ user_count }}</div>
+      <div class="stat__meta">Sistemde kayıtlı tüm hesaplar</div>
+    </div>
+
+    <div class="card stat stat--blue">
+      <h3>Onay Bekleyenler</h3>
+      <div class="stat__value">{{ pending_user_count }}</div>
+      <div class="stat__meta">Admin işlemi bekleyen kullanıcılar</div>
+    </div>
+
+    <div class="card stat stat--mint">
+      <h3>Onaylı Kullanıcılar</h3>
+      <div class="stat__value">{{ approved_user_count }}</div>
+      <div class="stat__meta">Giriş yapabilen kullanıcılar</div>
+    </div>
+  </section>
+
+  <section class="card-panel">
+    <div class="section-head">
+      <div>
+        <h2>Kullanıcı Listesi</h2>
+        <p>Kullanıcıların durum, rol ve giriş bilgileri</p>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Kullanıcı</th>
+            <th>Mail</th>
+            <th>Fakülte</th>
+            <th>Rol</th>
+            <th>Durum</th>
+            <th>Aktiflik</th>
+            <th>Kayıt Tarihi</th>
+            <th>Son Giriş</th>
+            <th>Son IP</th>
+            <th>Giriş Rolü</th>
+            <th>Giriş Sayısı</th>
+            <th>İşlemler</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {% for item in users %}
+          <tr>
+            <td>{{ item.user.username }}</td>
+            <td>{{ item.user.email|default:"-" }}</td>
+            <td>{{ item.get_faculty_display|default:"-" }}</td>
+            <td>{{ item.get_role_display }}</td>
+
+            <td>
+              {% if item.status == "approved" %}
+                <span class="status-badge status-success">Onaylandı</span>
+              {% elif item.status == "rejected" %}
+                <span class="status-badge status-danger">Reddedildi</span>
+              {% else %}
+                <span class="status-badge status-warning">Bekliyor</span>
+              {% endif %}
+            </td>
+
+            <td>
+              {% if item.user.is_active %}
+                <span class="status-badge status-info">Aktif</span>
+              {% else %}
+                <span class="status-badge status-danger">Pasif</span>
+              {% endif %}
+            </td>
+
+            <td>{{ item.user.date_joined|date:"d.m.Y H:i" }}</td>
+
+            <td>
+              {% if item.user.last_login %}
+                {{ item.user.last_login|date:"d.m.Y H:i" }}
+              {% else %}
+                -
+              {% endif %}
+            </td>
+
+            <td>{{ item.last_ip|default:"-" }}</td>
+            <td>{{ item.last_role_at_login|default:"-" }}</td>
+            <td>{{ item.login_count|default:"0" }}</td>
+
+            <td>
+              <div class="actions">
+                {% if item.status == "pending" %}
+                <form method="post" action="{% url 'adminx:user_approve' item.pk %}">
+                  {% csrf_token %}
+                  <button type="submit" class="btn success">Onayla</button>
+                </form>
+
+                <form method="post" action="{% url 'adminx:user_reject' item.pk %}">
+                  {% csrf_token %}
+                  <button type="submit" class="btn danger">Reddet</button>
+                </form>
+                {% endif %}
+
+                <a href="{% url 'adminx:user_delete' item.pk %}" class="btn danger">
+                  Sil
+                </a>
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="12" class="empty-row">Kayıtlı kullanıcı bulunamadı.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}

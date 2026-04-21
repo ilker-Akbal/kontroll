@@ -1,31 +1,285 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import mimetypes
 import time
+from pathlib import Path
 
 import cv2
+from django.conf import settings
+from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import Http404, JsonResponse, StreamingHttpResponse
-from django.shortcuts import get_object_or_404, render
+from django.http import FileResponse, Http404, JsonResponse, StreamingHttpResponse
+from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.timezone import now
 from django.views.decorators.cache import never_cache
-from django.views.decorators.http import require_GET
+from django.views.decorators.http import require_GET, require_POST
 
+from services.pipeline_bridge.fight_runner import start_pipeline, stop_pipeline
+from services.pipeline_bridge.report_reader import build_dashboard_report
+from services.pipeline_bridge.runtime_state import runtime
 from streams.models import Camera
 
 
-@never_cache
-@login_required
-def index(request):
-    cameras = Camera.objects.filter(is_active=True).order_by("-created_at")
-    return render(request, "dashboard/index.html", {"cameras": cameras})
+MAX_HISTORY_RUNS = 10
+MAX_HISTORY_STAGE3 = 200
+MAX_HISTORY_INCIDENTS = 200
 
 
-@never_cache
-@login_required
-@require_GET
-def status(request):
-    cameras = Camera.objects.filter(is_active=True).order_by("-created_at")
+def _serialize_camera(camera):
+    return {
+        "id": camera.id,
+        "name": camera.name,
+        "camera_id": camera.camera_id,
+        "source": camera.source,
+        "description": camera.description,
+        "is_active": camera.is_active,
+    }
 
-    data = {
-        "count": cameras.count(),
-        "cameras": [
+
+def _active_cameras_qs():
+    return Camera.objects.filter(is_active=True).order_by("-created_at")
+
+
+def _active_sources():
+    cameras = _active_cameras_qs()
+    return [
+        {
+            "camera_id": cam.camera_id,
+            "source": cam.source,
+            "name": cam.name,
+            "description": cam.description,
+        }
+        for cam in cameras
+    ]
+
+
+def _pipeline_runs_root() -> Path:
+    return Path(settings.MEDIA_ROOT) / "pipeline_runs"
+
+
+def _run_dirs(limit: int = MAX_HISTORY_RUNS) -> list[Path]:
+    root = _pipeline_runs_root()
+    if not root.exists() or not root.is_dir():
+        return []
+
+    dirs = [p for p in root.iterdir() if p.is_dir()]
+    dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return dirs[:limit]
+
+
+def _format_ts(value):
+    if value in (None, "", "-"):
+        return "-"
+    s = str(value).strip().replace("T", " ")
+    if "." in s:
+        s = s.split(".", 1)[0]
+    return s
+
+
+def _safe_float(v, default=0.0):
+    try:
+        return float(v)
+    except Exception:
+        return default
+
+
+def _safe_int(v, default=0):
+    try:
+        return int(v)
+    except Exception:
+        return default
+
+
+def _normalize_report(report: dict) -> dict:
+    if not report:
+        return report
+
+    for cam in report.get("cameras", []):
+        cam["last_ts"] = _format_ts(cam.get("last_ts"))
+
+    for row in report.get("recent_stage3", []):
+        row["event_start"] = _format_ts(row.get("event_start"))
+        row["event_end"] = _format_ts(row.get("event_end"))
+
+    for row in report.get("recent_incidents", []):
+        row["start_ts"] = _format_ts(row.get("start_ts"))
+        row["end_ts"] = _format_ts(row.get("end_ts"))
+
+    return report
+
+
+def _empty_report():
+    return {
+        "running": False,
+        "pid": None,
+        "return_code": None,
+        "started_at": None,
+        "run_dir": "",
+        "run_name": "",
+        "source_count": 0,
+        "camera_count": 0,
+        "sources": _active_sources(),
+        "cameras": [],
+        "recent_events": [],
+        "recent_stage3": [],
+        "recent_incidents": [],
+        "recent_status": [],
+    }
+
+
+def _read_run_report(run_dir: Path, running=False, pid=None, started_at=None, return_code=None):
+    try:
+        report = build_dashboard_report(
+            run_dir=str(run_dir),
+            sources=_active_sources(),
+            process_alive=running,
+            pid=pid,
+            started_at=started_at,
+            return_code=return_code,
+            media_root=settings.MEDIA_ROOT,
+        )
+        report["running"] = running
+        return _normalize_report(report)
+    except Exception:
+        return None
+
+
+def _stage3_sort_key(row: dict):
+    return (
+        str(row.get("event_end") or ""),
+        str(row.get("event_start") or ""),
+        str(row.get("event_id") or ""),
+    )
+
+
+def _incident_sort_key(row: dict):
+    return (
+        str(row.get("end_ts") or ""),
+        str(row.get("start_ts") or ""),
+        str(row.get("incident_id") or ""),
+    )
+
+
+def _dedupe_stage3(rows: list[dict]) -> list[dict]:
+    seen = set()
+    out = []
+    for row in rows:
+        key = (
+            row.get("run_name"),
+            row.get("camera_id"),
+            row.get("event_id"),
+            row.get("fight_prob"),
+            row.get("fight_label"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
+def _dedupe_incidents(rows: list[dict]) -> list[dict]:
+    seen = set()
+    out = []
+    for row in rows:
+        key = (
+            row.get("run_name"),
+            row.get("camera_id"),
+            row.get("incident_id"),
+            row.get("clip_path"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(row)
+    return out
+
+
+def _merge_history_reports(active_report: dict | None, history_reports: list[dict]) -> dict:
+    base = active_report or (history_reports[0] if history_reports else _empty_report())
+
+    merged = dict(base)
+    merged["recent_events"] = []
+    merged["recent_stage3"] = []
+    merged["recent_incidents"] = []
+
+    all_stage3 = []
+    all_incidents = []
+
+    for rep in ([active_report] if active_report else []) + history_reports:
+        if not rep:
+            continue
+
+        run_name = rep.get("run_name") or ""
+
+        for st in rep.get("recent_stage3", []):
+            row = dict(st)
+            row["run_name"] = run_name
+            all_stage3.append(row)
+
+        for inc in rep.get("recent_incidents", []):
+            row = dict(inc)
+            row["run_name"] = run_name
+            all_incidents.append(row)
+
+    all_stage3 = _dedupe_stage3(all_stage3)
+    all_incidents = _dedupe_incidents(all_incidents)
+
+    all_stage3.sort(key=_stage3_sort_key, reverse=True)
+    all_incidents.sort(key=_incident_sort_key, reverse=True)
+
+    merged["recent_stage3"] = all_stage3[:MAX_HISTORY_STAGE3]
+    merged["recent_incidents"] = all_incidents[:MAX_HISTORY_INCIDENTS]
+
+    return merged
+
+
+def _pipeline_report():
+    active = runtime.get()
+
+    active_report = None
+    active_run_dir = None
+    if active is not None:
+        proc = active.process
+        active_run_dir = Path(active.run_dir)
+        active_report = _read_run_report(
+            active_run_dir,
+            running=(proc.poll() is None),
+            pid=proc.pid,
+            started_at=active.started_at,
+            return_code=proc.poll(),
+        )
+
+    history_reports = []
+    for run_dir in _run_dirs():
+        if active_run_dir is not None and run_dir.resolve() == active_run_dir.resolve():
+            continue
+        rep = _read_run_report(run_dir, running=False, pid=None, started_at=None, return_code=None)
+        if rep:
+            history_reports.append(rep)
+
+    merged = _merge_history_reports(active_report, history_reports)
+
+    if active_report is None:
+        merged["running"] = False
+        merged["pid"] = None
+
+    return merged
+
+
+def _merge_camera_cards(cameras, pipeline_report):
+    pipeline_map = {
+        item.get("camera_id"): item
+        for item in pipeline_report.get("cameras", [])
+        if item.get("camera_id")
+    }
+
+    merged = []
+    for camera in cameras:
+        cam_pipe = pipeline_map.get(camera.camera_id, {})
+        merged.append(
             {
                 "id": camera.id,
                 "name": camera.name,
@@ -33,11 +287,213 @@ def status(request):
                 "source": camera.source,
                 "description": camera.description,
                 "is_active": camera.is_active,
+                "stage": cam_pipe.get("stage", "-"),
+                "detail": cam_pipe.get("detail", "-"),
+                "last_ts": _format_ts(cam_pipe.get("last_ts", "-")),
+                "persons": _safe_int(cam_pipe.get("persons", 0)),
+                "pair_ok": _safe_int(cam_pipe.get("pair_ok", 0)),
+                "pose_score": _safe_float(cam_pipe.get("pose_score", 0.0)),
+                "latest_event_status": cam_pipe.get("latest_event_status", "-"),
+                "latest_stage3_label": cam_pipe.get("latest_stage3_label", "-"),
+                "latest_stage3_prob": _safe_float(cam_pipe.get("latest_stage3_prob", 0.0)),
+                "latest_incident_label": cam_pipe.get("latest_incident_label", "-"),
+                "latest_incident_part_count": cam_pipe.get("latest_incident_part_count", "-"),
+                "queue_status": cam_pipe.get("queue_status", "-"),
+                "queue_reason": cam_pipe.get("queue_reason", "-"),
             }
-            for camera in cameras
+        )
+    return merged
+
+
+def _report_payload():
+    report = _pipeline_report()
+    return {
+        "ok": True,
+        "running": report["running"],
+        "events": [],
+        "stage3": report["recent_stage3"],
+        "incidents": report.get("recent_incidents", []),
+        "cameras": report["cameras"],
+        "run_name": report.get("run_name", ""),
+        "pid": report.get("pid"),
+        "camera_count": report.get("camera_count", 0),
+        "server_time": now().isoformat(),
+    }
+
+
+def _report_signature(payload: dict) -> str:
+    compact = {
+        "running": payload.get("running"),
+        "run_name": payload.get("run_name"),
+        "pid": payload.get("pid"),
+        "camera_count": payload.get("camera_count"),
+        "stage3": [
+            (
+                x.get("run_name"),
+                x.get("camera_id"),
+                x.get("event_id"),
+                x.get("event_end"),
+                x.get("fight_prob"),
+                x.get("fight_label"),
+            )
+            for x in payload.get("stage3", [])
+        ],
+        "incidents": [
+            (
+                x.get("run_name"),
+                x.get("camera_id"),
+                x.get("incident_id"),
+                x.get("end_ts"),
+                x.get("part_count"),
+                x.get("final_label"),
+                x.get("clip_path"),
+            )
+            for x in payload.get("incidents", [])
+        ],
+        "cameras": [
+            (
+                x.get("camera_id"),
+                x.get("stage"),
+                x.get("detail"),
+                x.get("last_ts"),
+                x.get("persons"),
+                x.get("pair_ok"),
+                x.get("pose_score"),
+                x.get("latest_event_status"),
+                x.get("latest_stage3_label"),
+                x.get("latest_stage3_prob"),
+                x.get("latest_incident_label"),
+                x.get("latest_incident_part_count"),
+                x.get("queue_status"),
+                x.get("queue_reason"),
+            )
+            for x in payload.get("cameras", [])
         ],
     }
+    raw = json.dumps(compact, ensure_ascii=False, sort_keys=True).encode("utf-8")
+    return hashlib.md5(raw).hexdigest()
+
+
+@never_cache
+@login_required
+def index(request):
+    cameras = list(_active_cameras_qs())
+    pipeline = _pipeline_report()
+    camera_cards = _merge_camera_cards(cameras, pipeline)
+
+    return render(
+        request,
+        "dashboard/index.html",
+        {
+            "cameras": cameras,
+            "camera_cards": camera_cards,
+            "pipeline": pipeline,
+        },
+    )
+
+
+@never_cache
+@login_required
+@require_GET
+def status(request):
+    _make_session_readonly(request)
+    cameras = _active_cameras_qs()
+    report = _pipeline_report()
+
+    data = {
+        "count": cameras.count(),
+        "cameras": [_serialize_camera(camera) for camera in cameras],
+        "pipeline": report,
+    }
     return JsonResponse(data)
+
+
+@never_cache
+@login_required
+@require_POST
+def start_detection(request):
+    active = runtime.get()
+    if active is not None and active.process.poll() is None:
+        messages.warning(request, "Pipeline zaten çalışıyor.")
+        return redirect("dashboard:index")
+
+    sources = _active_sources()
+    if not sources:
+        messages.error(request, "Aktif kamera bulunamadı.")
+        return redirect("dashboard:index")
+
+    active_run = start_pipeline(sources)
+    runtime.set(active_run)
+
+    messages.success(
+        request,
+        f"Pipeline başlatıldı. PID: {active_run.process.pid} | Run: {active_run.run_name}",
+    )
+    return redirect("dashboard:index")
+
+
+@never_cache
+@login_required
+@require_POST
+def stop_detection(request):
+    active = runtime.get()
+    if active is None:
+        messages.warning(request, "Çalışan pipeline yok.")
+        return redirect("dashboard:index")
+
+    stop_pipeline(active)
+    runtime.set(None)
+
+    messages.success(request, "Pipeline durduruldu. Eski kayıtlar korunuyor.")
+    return redirect("dashboard:index")
+
+
+@never_cache
+@login_required
+@require_GET
+def events(request):
+    _make_session_readonly(request)
+    return JsonResponse(_report_payload())
+
+
+@never_cache
+@login_required
+@require_GET
+def events_stream(request):
+    _make_session_readonly(request)
+
+    def event_generator():
+        last_sig = None
+
+        while True:
+            try:
+                payload = _report_payload()
+                sig = _report_signature(payload)
+
+                if sig != last_sig:
+                    last_sig = sig
+                    yield "event: dashboard\n"
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                else:
+                    yield "event: ping\n"
+                    yield f"data: {json.dumps({'ts': time.time()})}\n\n"
+
+                time.sleep(1.0)
+            except GeneratorExit:
+                break
+            except Exception as exc:
+                err = {"ok": False, "error": str(exc)}
+                yield "event: error\n"
+                yield f"data: {json.dumps(err, ensure_ascii=False)}\n\n"
+                time.sleep(2.0)
+
+    response = StreamingHttpResponse(
+        event_generator(),
+        content_type="text/event-stream",
+    )
+    response["Cache-Control"] = "no-cache"
+    response["X-Accel-Buffering"] = "no"
+    return response
 
 
 def _open_capture(source: str):
@@ -47,9 +503,13 @@ def _open_capture(source: str):
     source = str(source).strip()
 
     if source.isdigit():
-        return cv2.VideoCapture(int(source))
+        cap = cv2.VideoCapture(int(source), cv2.CAP_DSHOW)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        return cap
 
-    return cv2.VideoCapture(source)
+    cap = cv2.VideoCapture(source)
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    return cap
 
 
 def _mjpeg_generator(source: str):
@@ -79,7 +539,6 @@ def _mjpeg_generator(source: str):
             )
 
             time.sleep(0.03)
-
     finally:
         cap.release()
 
@@ -88,6 +547,7 @@ def _mjpeg_generator(source: str):
 @login_required
 @require_GET
 def stream(request, camera_id):
+    _make_session_readonly(request)
     camera = get_object_or_404(
         Camera,
         camera_id=camera_id,
@@ -106,3 +566,60 @@ def stream(request, camera_id):
         _mjpeg_generator(camera.source),
         content_type="multipart/x-mixed-replace; boundary=frame",
     )
+
+
+def _find_preview_path(camera_id: str) -> Path | None:
+    for run_dir in _run_dirs(limit=20):
+        preview_path = run_dir / "previews" / f"{camera_id}.jpg"
+        if preview_path.exists() and preview_path.is_file():
+            return preview_path
+    return None
+
+
+@never_cache
+@login_required
+@require_GET
+def preview_image(request, camera_id):
+    _make_session_readonly(request)
+    preview_path = _find_preview_path(camera_id)
+    if preview_path is None:
+        raise Http404("Preview bulunamadı")
+
+    response = FileResponse(open(preview_path, "rb"), content_type="image/jpeg")
+    response["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response["Pragma"] = "no-cache"
+    response["Expires"] = "0"
+    return response
+
+
+@never_cache
+@login_required
+@require_GET
+def incident_video(request, run_name, clip_name):
+    _make_session_readonly(request)
+    clip_path = (
+        Path(settings.MEDIA_ROOT)
+        / "pipeline_runs"
+        / run_name
+        / "incidents"
+        / clip_name
+    )
+    if not clip_path.exists() or not clip_path.is_file():
+        raise Http404("Incident clip bulunamadı")
+
+    content_type, _ = mimetypes.guess_type(str(clip_path))
+    if not content_type:
+        content_type = "video/mp4"
+
+    response = FileResponse(open(clip_path, "rb"), content_type=content_type)
+    response["Content-Length"] = clip_path.stat().st_size
+    response["Accept-Ranges"] = "bytes"
+    response["Cache-Control"] = "no-cache"
+    return response
+
+
+def _make_session_readonly(request):
+    try:
+        request.session.modified = False
+    except Exception:
+        pass

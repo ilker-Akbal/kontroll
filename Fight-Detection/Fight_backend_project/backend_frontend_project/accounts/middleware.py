@@ -8,9 +8,9 @@ class AuthRequiredMiddleware:
         self.public_paths = [
             "/accounts/login/",
             "/accounts/admin-login/",
+            "/accounts/register/",
             "/accounts/logout/",
             "/accounts/teacher-register/",
-            "/accounts/forgot-password/",
             "/static/",
             "/media/",
             "/djadmin/login/",

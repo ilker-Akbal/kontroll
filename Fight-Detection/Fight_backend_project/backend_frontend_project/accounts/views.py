@@ -1,13 +1,13 @@
 from django.contrib.auth import authenticate, login, logout
-from django.http import HttpResponse
 from django.shortcuts import render, redirect
 from django.views.decorators.http import require_http_methods, require_POST
 from django.views.decorators.cache import never_cache
 
-from .models import UserProfile
+from .models import UserProfile, LoginActivity
+from .forms import UserRegisterForm
 
 
-def _safe_next_url(next_url: str) -> str:
+def _safe_next_url(next_url):
     next_url = (next_url or "").strip()
 
     if not next_url.startswith("/"):
@@ -16,19 +16,29 @@ def _safe_next_url(next_url: str) -> str:
     if next_url.startswith("//"):
         return ""
 
-    allowed_prefixes = [
-        "/admin/",
-        "/dashboard/",
-    ]
+    if next_url.startswith("/admin/"):
+        return next_url
 
-    for prefix in allowed_prefixes:
-        if next_url.startswith(prefix):
-            return next_url
-
-    if next_url == "/":
-        return "/dashboard/"
+    if next_url.startswith("/dashboard/"):
+        return next_url
 
     return ""
+
+
+def _get_client_ip(request):
+    ip = request.META.get("HTTP_X_FORWARDED_FOR")
+    if ip:
+        return ip.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR")
+
+
+def _create_login_activity(request, user, profile):
+    LoginActivity.objects.create(
+        user=user,
+        role_at_login=profile.role,
+        ip_address=_get_client_ip(request),
+        user_agent=request.META.get("HTTP_USER_AGENT", ""),
+    )
 
 
 @never_cache
@@ -39,9 +49,6 @@ def login_view(request):
     )
 
     if request.user.is_authenticated:
-        profile = getattr(request.user, "profile", None)
-        if request.user.is_superuser or request.user.is_staff or (profile and profile.role == "admin"):
-            return redirect("/admin/")
         return redirect("/dashboard/")
 
     error = None
@@ -52,54 +59,42 @@ def login_view(request):
 
         if not username or not password:
             error = "Kullanıcı adı ve şifre zorunludur."
-            return render(
-                request,
-                "accounts/login.html",
-                {"error": error, "next_url": next_url},
-            )
 
-        user = authenticate(request, username=username, password=password)
+        else:
+            user = authenticate(request, username=username, password=password)
 
-        if user is None:
-            error = "Kullanıcı adı veya şifre hatalı."
-            return render(
-                request,
-                "accounts/login.html",
-                {"error": error, "next_url": next_url},
-            )
+            if user is None:
+                error = "Kullanıcı adı veya şifre hatalı."
 
-        if not user.is_active:
-            error = "Bu hesap pasif durumda."
-            return render(
-                request,
-                "accounts/login.html",
-                {"error": error, "next_url": next_url},
-            )
+            elif not user.is_active:
+                error = "Bu hesap pasif durumda."
 
-        profile = getattr(user, "profile", None)
-        if profile is None:
-            profile, _ = UserProfile.objects.get_or_create(user=user)
+            else:
+                profile, _ = UserProfile.objects.get_or_create(user=user)
 
-        if not profile.is_approved:
-            error = "Hesabınız henüz onaylanmamış."
-            return render(
-                request,
-                "accounts/login.html",
-                {"error": error, "next_url": next_url},
-            )
+                if profile.status == "pending":
+                    error = "Hesabınız admin onayı bekliyor."
 
-        login(request, user)
-        request.session.set_expiry(60 * 60 * 8)
+                elif profile.status == "rejected":
+                    error = "Hesabınız reddedildi."
 
-        if next_url.startswith("/dashboard/"):
-            return redirect(next_url)
+                else:
+                    login(request, user)
+                    request.session.set_expiry(60 * 60 * 8)
+                    _create_login_activity(request, user, profile)
 
-        return redirect("/dashboard/")
+                    if next_url:
+                        return redirect(next_url)
+
+                    return redirect("/dashboard/")
 
     return render(
         request,
         "accounts/login.html",
-        {"error": error, "next_url": next_url},
+        {
+            "error": error,
+            "next_url": next_url,
+        },
     )
 
 
@@ -111,10 +106,7 @@ def admin_login_view(request):
     )
 
     if request.user.is_authenticated:
-        profile = getattr(request.user, "profile", None)
-        if request.user.is_superuser or request.user.is_staff or (profile and profile.role == "admin"):
-            return redirect("/admin/")
-        return redirect("/dashboard/")
+        return redirect("/admin/")
 
     error = None
 
@@ -124,71 +116,69 @@ def admin_login_view(request):
 
         if not username or not password:
             error = "Kullanıcı adı ve şifre zorunludur."
-            return render(
-                request,
-                "accounts/admin_login.html",
-                {"error": error, "next_url": next_url},
-            )
 
-        user = authenticate(request, username=username, password=password)
+        else:
+            user = authenticate(request, username=username, password=password)
 
-        if user is None:
-            error = "Kullanıcı adı veya şifre hatalı."
-            return render(
-                request,
-                "accounts/admin_login.html",
-                {"error": error, "next_url": next_url},
-            )
+            if user is None:
+                error = "Kullanıcı adı veya şifre hatalı."
 
-        if not user.is_active:
-            error = "Bu hesap pasif durumda."
-            return render(
-                request,
-                "accounts/admin_login.html",
-                {"error": error, "next_url": next_url},
-            )
+            elif not user.is_active:
+                error = "Bu hesap pasif durumda."
 
-        profile = getattr(user, "profile", None)
-        if profile is None:
-            profile, _ = UserProfile.objects.get_or_create(user=user)
+            else:
+                profile, _ = UserProfile.objects.get_or_create(user=user)
 
-        # İlk admin bootstrap mantığı:
-        # superuser/staff kullanıcı admin girişinden geçebilsin
-        # ve profil rolü otomatik admin'e çekilsin
-        if user.is_superuser or user.is_staff:
-            if profile.role != "admin" or not profile.is_approved:
-                profile.role = "admin"
-                profile.is_approved = True
-                profile.save()
+                if user.is_superuser or user.is_staff:
+                    profile.role = "admin"
+                    profile.status = "approved"
+                    profile.save()
 
-        if not profile.is_approved:
-            error = "Hesabınız henüz onaylanmamış."
-            return render(
-                request,
-                "accounts/admin_login.html",
-                {"error": error, "next_url": next_url},
-            )
+                if profile.status == "pending":
+                    error = "Hesabınız admin onayı bekliyor."
 
-        if not (user.is_superuser or user.is_staff or profile.role == "admin"):
-            error = "Bu ekran yalnızca admin kullanıcıları içindir."
-            return render(
-                request,
-                "accounts/admin_login.html",
-                {"error": error, "next_url": next_url},
-            )
+                elif profile.status == "rejected":
+                    error = "Hesabınız reddedildi."
 
-        login(request, user)
-        request.session.set_expiry(60 * 60 * 8)
+                elif profile.role != "admin":
+                    error = "Bu alan yalnızca admin içindir."
 
-        if next_url.startswith("/admin/"):
-            return redirect(next_url)
+                else:
+                    login(request, user)
+                    request.session.set_expiry(60 * 60 * 8)
+                    _create_login_activity(request, user, profile)
 
-        return redirect("/admin/")
+                    if next_url:
+                        return redirect(next_url)
+
+                    return redirect("/admin/")
 
     return render(
         request,
         "accounts/admin_login.html",
-        {"error": error, "next_url": next_url},
+        {
+            "error": error,
+            "next_url": next_url,
+        },
+    )
+
+
+@never_cache
+@require_http_methods(["GET", "POST"])
+def register_view(request):
+    form = UserRegisterForm(request.POST or None)
+
+    if request.method == "POST":
+        if form.is_valid():
+            form.save()
+            return redirect("accounts:login")
+
+    return render(
+        request,
+        "accounts/register.html",
+        {
+            "form": form,
+        },
     )
 
 
@@ -197,12 +187,10 @@ def admin_login_view(request):
 def logout_view(request):
     logout(request)
     request.session.flush()
+
     response = redirect("accounts:login")
     response["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     response["Pragma"] = "no-cache"
     response["Expires"] = "0"
+
     return response
-
-
-def forgot_password(request):
-    return HttpResponse("Bu sayfa Faz 1'de aktif değil.")

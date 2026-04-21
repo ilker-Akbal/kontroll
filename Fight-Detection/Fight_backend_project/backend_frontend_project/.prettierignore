@@ -1,3 +1,7 @@
 adminx/templates/adminx/camera_list.html
 guvenlik/templates/dashboard/index.html
 adminx/templates/adminx/camera_delete.html
+adminx/templates/adminx/user_list.html
+adminx/templates/adminx/base.html
+guvenlik/templates/dashboard/index.html
+adminx/templates/adminx/user_delete.html

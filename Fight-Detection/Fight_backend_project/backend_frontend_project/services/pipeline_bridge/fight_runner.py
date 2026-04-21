@@ -20,6 +20,13 @@ class ActiveRun:
     started_at: float
 
 
+def _append_if_present(cmd: list[str], defaults: dict, key: str, flag: str):
+    value = defaults.get(key, None)
+    if value is None:
+        return
+    cmd.extend([flag, str(value)])
+
+
 def build_command(sources: list[dict], run_name: str) -> list[str]:
     defaults = settings.PIPELINE_DEFAULTS
 
@@ -37,12 +44,31 @@ def build_command(sources: list[dict], run_name: str) -> list[str]:
     cmd.extend(["--yolo-weights", defaults["yolo_weights"]])
     cmd.extend(["--pose-config", defaults["pose_config"]])
     cmd.extend(["--stage3-config", defaults["stage3_config"]])
-    cmd.extend(["--person-conf", defaults["person_conf"]])
-    cmd.extend(["--yolo-stride", defaults["yolo_stride"]])
-    cmd.extend(["--pose-stride", defaults["pose_stride"]])
-    cmd.extend(["--fight-thr", defaults["fight_thr"]])
+    cmd.extend(["--person-conf", str(defaults["person_conf"])])
+    cmd.extend(["--yolo-stride", str(defaults["yolo_stride"])])
+    cmd.extend(["--pose-stride", str(defaults["pose_stride"])])
+    cmd.extend(["--fight-thr", str(defaults["fight_thr"])])
     cmd.extend(["--output-dir", str(settings.PIPELINE_OUTPUT_BASE)])
     cmd.extend(["--run-name", run_name])
+
+    _append_if_present(cmd, defaults, "roi_size", "--roi-size")
+    _append_if_present(cmd, defaults, "min_persons_for_pose", "--min-persons-for-pose")
+    _append_if_present(cmd, defaults, "pose_hold_frames", "--pose-hold-frames")
+    _append_if_present(cmd, defaults, "event_close_grace_frames", "--event-close-grace-frames")
+    _append_if_present(cmd, defaults, "prebuffer_frames", "--prebuffer-frames")
+    _append_if_present(cmd, defaults, "max_event_frames", "--max-event-frames")
+    _append_if_present(cmd, defaults, "clip_fps", "--clip-fps")
+    _append_if_present(cmd, defaults, "reconnect_sec", "--reconnect-sec")
+    _append_if_present(cmd, defaults, "status_log_every", "--status-log-every")
+    _append_if_present(cmd, defaults, "min_queue_frames", "--min-queue-frames")
+    _append_if_present(cmd, defaults, "stage3_queue_size", "--stage3-queue-size")
+
+    _append_if_present(cmd, defaults, "preview_every_frames", "--preview-every-frames")
+    _append_if_present(cmd, defaults, "preview_write_interval_sec", "--preview-write-interval-sec")
+    _append_if_present(cmd, defaults, "preview_jpeg_quality", "--preview-jpeg-quality")
+    _append_if_present(cmd, defaults, "clip_writer_queue_size", "--clip-writer-queue-size")
+    _append_if_present(cmd, defaults, "report_flush_interval_sec", "--report-flush-interval-sec")
+    _append_if_present(cmd, defaults, "cv2_threads", "--cv2-threads")
 
     if defaults.get("use_pose"):
         cmd.append("--use-pose")
@@ -58,7 +84,6 @@ def start_pipeline(sources: list[dict]) -> ActiveRun:
     run_dir = Path(settings.PIPELINE_OUTPUT_BASE) / run_name
     run_dir.mkdir(parents=True, exist_ok=True)
 
-    # Dashboard bu klasörü bekliyor
     (run_dir / "previews").mkdir(parents=True, exist_ok=True)
 
     stdout_path = run_dir / "stdout.log"

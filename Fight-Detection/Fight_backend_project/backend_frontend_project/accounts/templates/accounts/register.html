@@ -4,8 +4,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Giriş Yap</title>
-    <link rel="stylesheet" href="{% static 'accounts/login.css' %}" />
+    <title>Kullanıcı Oluştur</title>
+    <link rel="stylesheet" href="{% static 'accounts/register.css' %}" />
   </head>
 
   <body>
@@ -19,77 +19,80 @@
               alt="TOGÜ Logo"
             />
             <div>
-              <h2>Giriş Yap</h2>
-              <p class="sub">Devam etmek için kullanıcı bilgilerini gir.</p>
+              <h2>Kullanıcı Oluştur</h2>
+              <p class="sub">
+                Sisteme erişim için kurumsal kullanıcı hesabınızı oluşturun.
+              </p>
             </div>
           </div>
         </header>
 
-        {% if error %}
+        {% if form.non_field_errors %}
         <div class="alert" role="alert">
           <div class="alert__icon">!</div>
-          <div><b>Hata:</b> {{ error }}</div>
+          <div>
+            {% for error in form.non_field_errors %}
+            <div><b>Hata:</b> {{ error }}</div>
+            {% endfor %}
+          </div>
         </div>
         {% endif %}
 
         <form
           class="form auth-form"
           method="post"
-          action="{% url 'accounts:login' %}"
+          action="{% url 'accounts:register' %}"
           novalidate
           onsubmit="
-            document.getElementById('loginBtn').disabled = true;
-            document.getElementById('loginBtn').innerText =
-              'Giriş yapılıyor...';
+            document.getElementById('registerBtn').disabled = true;
+            document.getElementById('registerBtn').innerText =
+              'Kullanıcı oluşturuluyor...';
           "
         >
           {% csrf_token %}
-          <input type="hidden" name="next" value="{{ next_url }}" />
 
           <div class="field">
-            <label for="username">Kullanıcı Adı</label>
-            <input
-              id="username"
-              name="username"
-              type="text"
-              placeholder="ornek@togu.edu.tr"
-              autocomplete="username"
-              required
-            />
+            <label for="{{ form.faculty.id_for_label }}">Fakülte</label>
+            {{ form.faculty }} {% for error in form.faculty.errors %}
+            <small class="error-text">{{ error }}</small>
+            {% endfor %}
           </div>
 
           <div class="field">
-            <label for="password">Şifre</label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              placeholder="••••••••"
-              autocomplete="current-password"
-              required
-            />
+            <label for="{{ form.email.id_for_label }}">Mail</label>
+            {{ form.email }} {% for error in form.email.errors %}
+            <small class="error-text">{{ error }}</small>
+            {% endfor %}
           </div>
 
-          <button class="btn" id="loginBtn" type="submit">Giriş Yap</button>
+          <div class="field">
+            <label for="{{ form.password1.id_for_label }}">Şifre</label>
+            {{ form.password1 }} {% for error in form.password1.errors %}
+            <small class="error-text">{{ error }}</small>
+            {% endfor %}
+          </div>
+
+          <div class="field">
+            <label for="{{ form.password2.id_for_label }}">Şifre Tekrar</label>
+            {{ form.password2 }} {% for error in form.password2.errors %}
+            <small class="error-text">{{ error }}</small>
+            {% endfor %}
+          </div>
+
+          <button class="btn" id="registerBtn" type="submit">
+            Kullanıcı Oluştur
+          </button>
         </form>
 
         <div class="actions-bottom register-action-row">
           <a
-            href="{% url 'accounts:register' %}"
+            href="{% url 'accounts:login' %}"
             class="pill-link register-panel-btn"
           >
-            Kayıt Ol
+            Giriş Yap
           </a>
         </div>
 
-        <div class="actions-bottom" style="margin-top: 12px">
-          <a
-            href="{% url 'accounts:admin_login' %}"
-            class="pill-link alt auth-secondary-btn"
-          >
-            Admin Panel Girişi
-          </a>
-        </div>
         <section class="devs" aria-label="Geliştiriciler">
           <div class="devs__title">Geliştiriciler</div>
           <div class="devs__grid">
