@@ -496,6 +496,21 @@ def events_stream(request):
     return response
 
 
+def _is_file_source(source: str) -> bool:
+    s = str(source).strip()
+    if not s:
+        return False
+
+    if s.isdigit():
+        return False
+
+    low = s.lower()
+    if low.startswith(("rtsp://", "rtmp://", "http://", "https://", "udp://", "tcp://")):
+        return False
+
+    return Path(s).exists()
+
+
 def _open_capture(source: str):
     if source is None:
         return None
@@ -517,15 +532,21 @@ def _mjpeg_generator(source: str):
     if cap is None or not cap.isOpened():
         return
 
+    is_file = _is_file_source(source)
+
     try:
         while True:
             ok, frame = cap.read()
             if not ok or frame is None:
+                if is_file:
+                    break
                 time.sleep(0.05)
                 continue
 
             ok, buffer = cv2.imencode(".jpg", frame)
             if not ok:
+                if is_file:
+                    break
                 time.sleep(0.05)
                 continue
 

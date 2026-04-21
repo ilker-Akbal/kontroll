@@ -120,11 +120,17 @@ def build_dashboard_report(
                 "latest_incident_label": incident.get("final_label", ""),
                 "latest_incident_clip_path": incident.get("clip_path", ""),
                 "latest_incident_clip_media_path": _rel_media_path(incident.get("clip_path", ""), media_root),
-                "latest_incident_part_count": _safe_int(incident.get("part_count", ""), default=0) if incident.get("part_count", "") not in ("", None) else "",
+                "latest_incident_part_count": _safe_int(incident.get("part_count", ""), default=0)
+                if incident.get("part_count", "") not in ("", None)
+                else "",
                 "queue_status": status.get("queue_status", ""),
                 "queue_reason": status.get("queue_reason", ""),
-                "queue_size": _safe_int(status.get("queue_size", ""), default=0) if status.get("queue_size", "") != "" else "",
-                "queue_capacity": _safe_int(status.get("queue_capacity", ""), default=0) if status.get("queue_capacity", "") != "" else "",
+                "queue_size": _safe_int(status.get("queue_size", ""), default=0)
+                if status.get("queue_size", "") != ""
+                else "",
+                "queue_capacity": _safe_int(status.get("queue_capacity", ""), default=0)
+                if status.get("queue_capacity", "") != ""
+                else "",
                 "preview_media_path": f"pipeline_runs/{run_dir.name}/previews/{camera_id}.jpg",
             }
         )

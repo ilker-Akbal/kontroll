@@ -20,10 +20,10 @@ import yaml
 
 from fight.pipeline.adapters import MotionAdapter, Stage3Adapter, YoloAdapter
 from fight.pipeline.clip_buffer import save_clip_mp4
+from fight.pipeline.incident_aggregator import IncidentAggregator, Stage3Result
 from fight.pipeline.pair_selector import LivePairRoiController
 from fight.pipeline.person_stabilizer import TemporalPersonStabilizer
 from fight.pipeline.utils import crop_from_box, open_source, sanitize_box
-from fight.pipeline.incident_aggregator import IncidentAggregator, Stage3Result
 from fight.pose.src.pose_adapter import PoseAdapter
 from fight.pose.src.pose_gate import PoseGate
 
@@ -75,6 +75,21 @@ def configure_runtime(args) -> None:
     os.environ.setdefault("OPENBLAS_NUM_THREADS", str(max(1, int(args.cv2_threads))))
 
     safe_cuda_optimize()
+
+
+def is_file_source(source: str) -> bool:
+    s = str(source).strip()
+    if not s:
+        return False
+
+    if s.isdigit():
+        return False
+
+    low = s.lower()
+    if low.startswith(("rtsp://", "rtmp://", "http://", "https://", "udp://", "tcp://")):
+        return False
+
+    return Path(s).exists()
 
 
 @dataclass
@@ -260,7 +275,6 @@ class ReportHub:
         try:
             self.q.put_nowait((kind, row))
         except queue.Full:
-            # statü dolarsa yeni statü düşebilir, event/stage3 düşmesin diye blokla
             if kind == "status":
                 try:
                     self.q.get_nowait()
@@ -458,21 +472,22 @@ class Stage3Worker(threading.Thread):
 
                 prob = self.shared.stage3_infer(job.frames)
                 label = "fight" if prob >= self.fight_thr else "non_fight"
+
                 self.incident_aggregator.submit(
-                Stage3Result(
-                    camera_id=job.camera_id,
-                    source=job.source,
-                    event_id=job.event_id,
-                    event_start_ts=job.event_start_ts,
-                    event_end_ts=job.event_end_ts,
-                    clip_path=job.clip_path,
-                    fight_prob=float(prob),
-                    fight_label=label,
-                    pose_score_max=float(job.pose_score_max),
-                    pose_score_mean=float(job.pose_score_mean),
+                    Stage3Result(
+                        camera_id=job.camera_id,
+                        source=job.source,
+                        event_id=job.event_id,
+                        event_start_ts=job.event_start_ts,
+                        event_end_ts=job.event_end_ts,
+                        clip_path=job.clip_path,
+                        fight_prob=float(prob),
+                        fight_label=label,
+                        pose_score_max=float(job.pose_score_max),
+                        pose_score_mean=float(job.pose_score_mean),
+                    )
                 )
-            )
-                self.incident_aggregator.flush_expired()
+
                 row = {
                     "camera_id": job.camera_id,
                     "ip": job.source,
@@ -566,6 +581,7 @@ class CameraWorker(threading.Thread):
 
         self.camera_id = str(camera_id)
         self.source = str(source)
+        self.source_is_file = is_file_source(self.source)
         self.stop_event = stop_event
         self.shared = shared
         self.report_hub = report_hub
@@ -616,15 +632,14 @@ class CameraWorker(threading.Thread):
         self.active_event: Optional[ActiveEvent] = None
         self.prebuffer: Deque = deque(maxlen=int(args.prebuffer_frames))
 
-        self.clips_dir = Path(args.output_dir) / "clips"
-        self.clips_dir.mkdir(parents=True, exist_ok=True)
+        self.temp_segments_dir = Path(args.output_dir) / "temp_segments"
+        self.temp_segments_dir.mkdir(parents=True, exist_ok=True)
 
         self.previews_dir = Path(args.output_dir) / "previews"
         self.previews_dir.mkdir(parents=True, exist_ok=True)
 
         self.preview_path = self.previews_dir / f"{self.camera_id}.jpg"
         self.preview_every = max(1, int(args.preview_every_frames))
-
         self.status_log_every = int(max(1, args.status_log_every))
 
         self.latest_stage3_prob = None
@@ -738,7 +753,7 @@ class CameraWorker(threading.Thread):
             f"cam_{self.camera_id}__evt_{ev.event_id}__"
             f"{datetime.fromtimestamp(ev.start_ts).strftime('%Y%m%d_%H%M%S_%f')[:-3]}.mp4"
         )
-        clip_path = self.clips_dir / clip_name
+        clip_path = self.temp_segments_dir / clip_name
 
         if ev.frames:
             try:
@@ -878,8 +893,8 @@ class CameraWorker(threading.Thread):
             h, w = vis.shape[:2]
 
             overlay_h = min(190, h - 20)
-            cv2.rectangle(vis, (10, 10), (w - 10, 10 + overlay_h), (20, 20, 20), -1)
-            cv2.rectangle(vis, (10, 10), (w - 10, 10 + overlay_h), (0, 255, 255), 2)
+            cv2.rectangle(vis, (10, 10), (w - 10), (20, 20, 20), -1)
+            cv2.rectangle(vis, (10, 10), (w - 10), (0, 255, 255), 2)
 
             snap = self.runtime_state.get(self.camera_id)
 
@@ -961,6 +976,21 @@ class CameraWorker(threading.Thread):
         while not self.stop_event.is_set():
             ret, frame = self.cap.read()
             if not ret:
+                if self.source_is_file:
+                    self._status("camera", "eof_reached")
+                    self.runtime_state.update(
+                        self.camera_id,
+                        stage="camera",
+                        detail="eof_reached",
+                        event_active=int(self.active_event is not None),
+                    )
+
+                    if self.active_event is not None:
+                        self._close_event(reason="eof_reached")
+
+                    LOG.info("[CAM %s] file source finished, stopping worker", self.camera_id)
+                    break
+
                 self._status("camera", "read_failed_reconnecting")
                 self.runtime_state.update(
                     self.camera_id,
@@ -1367,10 +1397,10 @@ def build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--pose-stride", type=int, default=2)
     ap.add_argument("--roi-size", type=int, default=320)
     ap.add_argument("--min-persons-for-pose", type=int, default=2)
-    ap.add_argument("--pose-hold-frames", type=int, default=8)
-    ap.add_argument("--event-close-grace-frames", type=int, default=12)
-    ap.add_argument("--prebuffer-frames", type=int, default=12)
-    ap.add_argument("--max-event-frames", type=int, default=160)
+    ap.add_argument("--pose-hold-frames", type=int, default=18)
+    ap.add_argument("--event-close-grace-frames", type=int, default=42)
+    ap.add_argument("--prebuffer-frames", type=int, default=24)
+    ap.add_argument("--max-event-frames", type=int, default=360)
     ap.add_argument("--clip-fps", type=float, default=16.0)
     ap.add_argument("--reconnect-sec", type=float, default=1.0)
     ap.add_argument("--status-log-every", type=int, default=30)
@@ -1378,7 +1408,7 @@ def build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--use-pose", action="store_true", default=True)
     ap.add_argument("--use-stage3", action="store_true", default=True)
     ap.add_argument("--fight-thr", type=float, default=0.60)
-    ap.add_argument("--min-queue-frames", type=int, default=32, help="minimum clip frames before sending to stage3")
+    ap.add_argument("--min-queue-frames", type=int, default=20, help="minimum clip frames before sending to stage3")
     ap.add_argument("--stage3-queue-size", type=int, default=64)
 
     ap.add_argument("--preview-every-frames", type=int, default=4)
@@ -1426,11 +1456,21 @@ def main():
     incident_dir.mkdir(parents=True, exist_ok=True)
 
     incident_aggregator = IncidentAggregator(
-    out_dir=str(incident_dir),
-    merge_gap_sec=8.0,
-    finalize_idle_sec=8.0,
-    keep_temp_parts=True,
-    write_nonfight_incidents=False,
+        out_dir=str(incident_dir),
+        merge_gap_sec=12.0,
+        max_bridge_nonfight=2,
+        enter_thr=0.68,
+        keep_thr=0.50,
+        vote_window=5,
+        vote_enter_needed=3,
+        vote_keep_needed=2,
+        min_incident_segments=1,
+        confirm_min_duration_sec=1.0,
+        cooldown_sec=20.0,
+        keep_temp_parts=True,
+        write_nonfight_incidents=False,
+        clip_ready_wait_sec=8.0,
+        instant_finalize_single_fight=True,
 )
     shared = SharedModels(
         yolo_config=args.yolo_config,
@@ -1442,7 +1482,8 @@ def main():
     )
 
     if shared.stage3 is not None:
-        args.min_queue_frames = max(int(args.min_queue_frames), int(shared.stage3_clip_len))
+        model_clip_len = int(shared.stage3_clip_len)
+        args.min_queue_frames = max(int(args.min_queue_frames), min(model_clip_len, 20))
 
     stage3_queue: "queue.Queue[Stage3Job]" = queue.Queue(maxsize=int(args.stage3_queue_size))
     clip_queue: "queue.Queue[ClipSaveJob]" = queue.Queue(maxsize=int(args.clip_writer_queue_size))
@@ -1463,6 +1504,7 @@ def main():
         fight_thr=float(args.fight_thr),
         incident_aggregator=incident_aggregator,
     )
+
     workers = [
         CameraWorker(
             camera_id=camera_id,
@@ -1514,6 +1556,7 @@ def main():
         clip_writer.join(timeout=10.0)
         stage3_worker.join(timeout=10.0)
         preview_writer.join(timeout=5.0)
+
         incident_aggregator.close_all()
         report_hub.close()
 
