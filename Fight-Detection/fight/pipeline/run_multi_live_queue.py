@@ -893,8 +893,8 @@ class CameraWorker(threading.Thread):
             h, w = vis.shape[:2]
 
             overlay_h = min(190, h - 20)
-            cv2.rectangle(vis, (10, 10), (w - 10), (20, 20, 20), -1)
-            cv2.rectangle(vis, (10, 10), (w - 10), (0, 255, 255), 2)
+            cv2.rectangle(vis, (10, 10), (w - 10, overlay_h), (20, 20, 20), -1)
+            cv2.rectangle(vis, (10, 10), (w - 10, overlay_h), (0, 255, 255), 2)
 
             snap = self.runtime_state.get(self.camera_id)
 
@@ -925,7 +925,7 @@ class CameraWorker(threading.Thread):
                     cv2.LINE_AA,
                 )
                 y += 16
-                if y > 10 + overlay_h - 10:
+                if y > overlay_h - 10:
                     break
 
             return vis
@@ -1411,6 +1411,22 @@ def build_argparser() -> argparse.ArgumentParser:
     ap.add_argument("--min-queue-frames", type=int, default=20, help="minimum clip frames before sending to stage3")
     ap.add_argument("--stage3-queue-size", type=int, default=64)
 
+    ap.add_argument("--incident-enter-thr", type=float, default=0.62)
+    ap.add_argument("--incident-keep-thr", type=float, default=0.48)
+    ap.add_argument("--incident-vote-window", type=int, default=5)
+    ap.add_argument("--incident-vote-enter-needed", type=int, default=3)
+    ap.add_argument("--incident-vote-keep-needed", type=int, default=2)
+    ap.add_argument("--incident-merge-gap-sec", type=float, default=12.0)
+    ap.add_argument("--incident-max-bridge-nonfight", type=int, default=2)
+    ap.add_argument("--incident-min-segments", type=int, default=2)
+    ap.add_argument("--incident-single-strong-fight-thr", type=float, default=0.78)
+    ap.add_argument("--incident-confirm-min-duration-sec", type=float, default=1.0)
+    ap.add_argument("--incident-cooldown-sec", type=float, default=20.0)
+    ap.add_argument("--incident-clip-ready-wait-sec", type=float, default=8.0)
+    ap.add_argument("--incident-stale-finalize-sec", type=float, default=10.0)
+    ap.add_argument("--incident-temporal-iou-merge-thr", type=float, default=0.50)
+    ap.add_argument("--incident-write-nonfight", action="store_true", default=False)
+
     ap.add_argument("--preview-every-frames", type=int, default=4)
     ap.add_argument("--preview-write-interval-sec", type=float, default=0.50)
     ap.add_argument("--preview-jpeg-quality", type=int, default=80)
@@ -1457,21 +1473,24 @@ def main():
 
     incident_aggregator = IncidentAggregator(
         out_dir=str(incident_dir),
-        merge_gap_sec=12.0,
-        max_bridge_nonfight=2,
-        enter_thr=0.68,
-        keep_thr=0.50,
-        vote_window=5,
-        vote_enter_needed=3,
-        vote_keep_needed=2,
-        min_incident_segments=1,
-        confirm_min_duration_sec=1.0,
-        cooldown_sec=20.0,
+        merge_gap_sec=float(args.incident_merge_gap_sec),
+        max_bridge_nonfight=int(args.incident_max_bridge_nonfight),
+        enter_thr=float(args.incident_enter_thr),
+        keep_thr=float(args.incident_keep_thr),
+        vote_window=int(args.incident_vote_window),
+        vote_enter_needed=int(args.incident_vote_enter_needed),
+        vote_keep_needed=int(args.incident_vote_keep_needed),
+        min_incident_segments=int(args.incident_min_segments),
+        single_strong_fight_thr=float(args.incident_single_strong_fight_thr),
+        confirm_min_duration_sec=float(args.incident_confirm_min_duration_sec),
+        cooldown_sec=float(args.incident_cooldown_sec),
         keep_temp_parts=True,
-        write_nonfight_incidents=False,
-        clip_ready_wait_sec=8.0,
-        instant_finalize_single_fight=True,
-)
+        write_nonfight_incidents=bool(args.incident_write_nonfight),
+        clip_ready_wait_sec=float(args.incident_clip_ready_wait_sec),
+        stale_finalize_sec=float(args.incident_stale_finalize_sec),
+        temporal_iou_merge_thr=float(args.incident_temporal_iou_merge_thr),
+    )
+
     shared = SharedModels(
         yolo_config=args.yolo_config,
         yolo_weights=args.yolo_weights,

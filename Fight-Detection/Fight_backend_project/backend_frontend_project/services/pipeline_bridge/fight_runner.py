@@ -24,6 +24,10 @@ def _append_if_present(cmd: list[str], defaults: dict, key: str, flag: str):
     value = defaults.get(key, None)
     if value is None:
         return
+    if isinstance(value, bool):
+        if value:
+            cmd.append(flag)
+        return
     cmd.extend([flag, str(value)])
 
 
@@ -62,6 +66,22 @@ def build_command(sources: list[dict], run_name: str) -> list[str]:
     _append_if_present(cmd, defaults, "status_log_every", "--status-log-every")
     _append_if_present(cmd, defaults, "min_queue_frames", "--min-queue-frames")
     _append_if_present(cmd, defaults, "stage3_queue_size", "--stage3-queue-size")
+
+    _append_if_present(cmd, defaults, "incident_enter_thr", "--incident-enter-thr")
+    _append_if_present(cmd, defaults, "incident_keep_thr", "--incident-keep-thr")
+    _append_if_present(cmd, defaults, "incident_vote_window", "--incident-vote-window")
+    _append_if_present(cmd, defaults, "incident_vote_enter_needed", "--incident-vote-enter-needed")
+    _append_if_present(cmd, defaults, "incident_vote_keep_needed", "--incident-vote-keep-needed")
+    _append_if_present(cmd, defaults, "incident_merge_gap_sec", "--incident-merge-gap-sec")
+    _append_if_present(cmd, defaults, "incident_max_bridge_nonfight", "--incident-max-bridge-nonfight")
+    _append_if_present(cmd, defaults, "incident_min_segments", "--incident-min-segments")
+    _append_if_present(cmd, defaults, "incident_single_strong_fight_thr", "--incident-single-strong-fight-thr")
+    _append_if_present(cmd, defaults, "incident_confirm_min_duration_sec", "--incident-confirm-min-duration-sec")
+    _append_if_present(cmd, defaults, "incident_cooldown_sec", "--incident-cooldown-sec")
+    _append_if_present(cmd, defaults, "incident_clip_ready_wait_sec", "--incident-clip-ready-wait-sec")
+    _append_if_present(cmd, defaults, "incident_stale_finalize_sec", "--incident-stale-finalize-sec")
+    _append_if_present(cmd, defaults, "incident_temporal_iou_merge_thr", "--incident-temporal-iou-merge-thr")
+    _append_if_present(cmd, defaults, "incident_write_nonfight", "--incident-write-nonfight")
 
     _append_if_present(cmd, defaults, "preview_every_frames", "--preview-every-frames")
     _append_if_present(cmd, defaults, "preview_write_interval_sec", "--preview-write-interval-sec")
