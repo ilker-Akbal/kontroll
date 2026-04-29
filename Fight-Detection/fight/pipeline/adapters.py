@@ -47,6 +47,7 @@ class YoloAdapter:
 
     def detect_persons(self, frame_bgr: np.ndarray):
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+
         res = self.model.predict(
             source=frame_rgb,
             imgsz=self.imgsz,
@@ -123,6 +124,22 @@ class PoseLiveAdapter:
 
 
 class Stage3Adapter:
+    """
+    Canlı pipeline Stage3 adapter.
+
+    Eski sistem:
+        R3D-18, 32/64 frame, eski Kinetics mean/std.
+
+    Yeni sistem:
+        X3D-M, 64 frame context -> 16 frame sample,
+        mean/std eğitim koduyla aynı:
+            mean=[0.45, 0.45, 0.45]
+            std =[0.225, 0.225, 0.225]
+
+    run_multi_live_queue.py tarafındaki arayüz aynı kalır:
+        Stage3Adapter.infer(frames) -> fight_prob
+    """
+
     def __init__(self, cfg_path: str):
         import importlib.util
         import yaml
@@ -137,19 +154,28 @@ class Stage3Adapter:
         stage3_root = cfgp.parent.parent
         self.stage3_root = stage3_root
 
-        mcfg = self.cfg.get("model", {})
-        icfg = self.cfg.get("input", {})
+        mcfg = self.cfg.get("model", {}) or {}
+        icfg = self.cfg.get("input", {}) or {}
 
+        self.model_name = str(mcfg.get("name", "x3d_m"))
         self.num_classes = int(mcfg.get("num_classes", 2))
         self.device = str(mcfg.get("device", "cuda"))
-        self.amp = bool(mcfg.get("amp", False))
+        self.amp = bool(mcfg.get("amp", True))
+        self.amp_dtype_name = str(mcfg.get("amp_dtype", "bf16")).lower().strip()
 
         if self.device.startswith("cuda") and not torch.cuda.is_available():
             self.device = "cpu"
+            self.amp = False
 
-        self.clip_len = int(icfg.get("clip_len", 32))
+        # Eğitim mantığı:
+        # 64 context frame okunur, modele 16 frame verilir.
+        self.context_frames = int(icfg.get("context_frames", 64))
+        self.clip_len = int(icfg.get("clip_len", 16))
         self.size = int(icfg.get("size", 224))
         self.pad_value = int(icfg.get("pad_value", 114))
+
+        mean_vals = icfg.get("mean", [0.45, 0.45, 0.45])
+        std_vals = icfg.get("std", [0.225, 0.225, 0.225])
 
         ckpt_rel = str(mcfg.get("ckpt_path", "")).replace("\\", "/")
         if not ckpt_rel:
@@ -161,13 +187,18 @@ class Stage3Adapter:
             (stage3_root / p).resolve(),
             (stage3_root / "weights" / p.name).resolve(),
         ]
+
         ckpt_path = None
         for c in candidates:
             if c.exists():
                 ckpt_path = c
                 break
+
         if ckpt_path is None:
-            raise FileNotFoundError(f"ckpt bulunamadı: {ckpt_rel}")
+            raise FileNotFoundError(
+                "Stage3 checkpoint bulunamadı. Denenen yollar:\n"
+                + "\n".join(str(x) for x in candidates)
+            )
 
         ml_path = stage3_root / "src" / "model_loader.py"
         spec = importlib.util.spec_from_file_location("stage3_model_loader", str(ml_path))
@@ -175,45 +206,138 @@ class Stage3Adapter:
         assert spec is not None and spec.loader is not None
         spec.loader.exec_module(mod)
 
-        self.model = mod.load_model(str(ckpt_path), device=self.device, num_classes=self.num_classes)
+        self.model = mod.load_model(
+            str(ckpt_path),
+            device=self.device,
+            num_classes=self.num_classes,
+            model_name=self.model_name,
+            pretrained=False,
+            strict=True,
+        )
         self.model.eval()
 
-        mean = torch.tensor([0.43216, 0.394666, 0.37645], dtype=torch.float32).view(1, 3, 1, 1, 1)
-        std = torch.tensor([0.22803, 0.22145, 0.216989], dtype=torch.float32).view(1, 3, 1, 1, 1)
+        mean = torch.tensor(mean_vals, dtype=torch.float32).view(1, 3, 1, 1, 1)
+        std = torch.tensor(std_vals, dtype=torch.float32).view(1, 3, 1, 1, 1)
         self.mean = mean.to(self.device)
         self.std = std.to(self.device)
+
+        if self.device.startswith("cuda"):
+            try:
+                torch.backends.cudnn.benchmark = True
+            except Exception:
+                pass
+            try:
+                torch.backends.cuda.matmul.allow_tf32 = True
+                torch.backends.cudnn.allow_tf32 = True
+                torch.set_float32_matmul_precision("high")
+            except Exception:
+                pass
+
+        self.amp_dtype = self._resolve_amp_dtype()
+
+        print(
+            "[STAGE3] loaded",
+            f"model={self.model_name}",
+            f"ckpt={ckpt_path}",
+            f"device={self.device}",
+            f"context_frames={self.context_frames}",
+            f"clip_len={self.clip_len}",
+            f"size={self.size}",
+            f"amp={self.amp}",
+            f"amp_dtype={self.amp_dtype_name}",
+        )
+
+    def _resolve_amp_dtype(self):
+        torch = self.torch
+
+        if not str(self.device).startswith("cuda"):
+            return torch.float32
+
+        if self.amp_dtype_name in {"bf16", "bfloat16"}:
+            try:
+                if torch.cuda.is_bf16_supported():
+                    return torch.bfloat16
+            except Exception:
+                pass
+            return torch.float16
+
+        if self.amp_dtype_name in {"fp16", "float16", "half"}:
+            return torch.float16
+
+        return torch.float16
+
+    @staticmethod
+    def _linspace_indices(n: int, k: int):
+        if n <= 0:
+            return []
+        if k <= 1:
+            return [max(0, n // 2)]
+        return np.linspace(0, n - 1, k).astype(np.int64).tolist()
+
+    def _select_frames_for_x3d(self, clip_bgr_list):
+        frames = list(clip_bgr_list)
+
+        if not frames:
+            raise RuntimeError("Stage3 clip boş")
+
+        # En güncel context kullanılır.
+        # Event uzun ise son 64 frame, kısa ise mevcut frame + pad.
+        if self.context_frames > 0 and len(frames) > self.context_frames:
+            frames = frames[-self.context_frames:]
+
+        if len(frames) < self.clip_len:
+            last = frames[-1]
+            frames = frames + [last] * (self.clip_len - len(frames))
+
+        ids = self._linspace_indices(len(frames), self.clip_len)
+        sampled = [frames[int(i)] for i in ids]
+
+        if len(sampled) != self.clip_len:
+            raise RuntimeError(
+                f"Stage3 sample hatası: beklenen={self.clip_len}, gelen={len(sampled)}"
+            )
+
+        return sampled
 
     def _preprocess(self, clip_bgr_list):
         torch = self.torch
 
-        frames = clip_bgr_list
-        T = self.clip_len
-
-        if len(frames) < T:
-            if len(frames) == 0:
-                raise RuntimeError("clip boş")
-            last = frames[-1]
-            frames = frames + [last] * (T - len(frames))
-        elif len(frames) > T:
-            frames = frames[-T:]
+        frames = self._select_frames_for_x3d(clip_bgr_list)
 
         out = []
         for f in frames:
+            if f is None:
+                continue
+
             rgb = cv2.cvtColor(f, cv2.COLOR_BGR2RGB)
+
+            # Pipeline ROI tarafında kare/letterbox mantığı kullanıldığı için
+            # canlıda aspect bozmadan padding ile 224'e çekiyoruz.
             rgb = resize_with_padding(
                 rgb,
                 out_size=self.size,
                 pad_value=self.pad_value,
                 interpolation=cv2.INTER_LINEAR,
             )
+
             out.append(rgb)
 
-        arr = np.stack(out, axis=0)
+        if not out:
+            raise RuntimeError("Stage3 preprocess sonrası frame kalmadı")
+
+        if len(out) < self.clip_len:
+            last = out[-1]
+            out = out + [last] * (self.clip_len - len(out))
+
+        arr = np.stack(out, axis=0)  # T,H,W,C RGB
         x = torch.from_numpy(arr).to(torch.float32) / 255.0
+
+        # T,H,W,C -> T,C,H,W -> 1,T,C,H,W -> 1,C,T,H,W
         x = x.permute(0, 3, 1, 2).contiguous()
         x = x.unsqueeze(0)
         x = x.permute(0, 2, 1, 3, 4).contiguous()
-        x = x.to(self.device)
+
+        x = x.to(self.device, non_blocking=True)
         x = (x - self.mean) / self.std
         return x
 
@@ -221,14 +345,25 @@ class Stage3Adapter:
         torch = self.torch
         x = self._preprocess(clip_bgr_list)
 
-        use_amp = self.amp and str(self.device).startswith("cuda")
+        use_amp = bool(self.amp and str(self.device).startswith("cuda"))
+
         with torch.no_grad():
-            with torch.amp.autocast("cuda", enabled=use_amp):
+            if str(self.device).startswith("cuda"):
+                with torch.amp.autocast(
+                    device_type="cuda",
+                    dtype=self.amp_dtype,
+                    enabled=use_amp,
+                ):
+                    logits = self.model(x)
+            else:
                 logits = self.model(x)
 
+            if isinstance(logits, (tuple, list)):
+                logits = logits[0]
+
             if hasattr(logits, "ndim") and logits.ndim == 2 and logits.shape[1] >= 2:
-                prob = torch.softmax(logits, dim=1)[:, 1].item()
+                prob = torch.softmax(logits, dim=1)[:, 1].detach().float().item()
             else:
-                prob = torch.sigmoid(logits).item()
+                prob = torch.sigmoid(logits).detach().float().item()
 
         return float(prob)

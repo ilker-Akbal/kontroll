@@ -85,29 +85,42 @@ def start_sources(raw_sources):
             return_code=_active_run.process.poll(),
         )
 
-
 def stop_sources():
     global _active_run
 
-    with _lock:
-        if _active_run is not None:
-            stop_pipeline(_active_run)
+    if _active_run is None:
+        return {
+            "ok": True,
+            "already_stopped": True,
+            "message": "Sistem zaten durdurulmuş.",
+            "running": False,
+        }
 
-            data = build_dashboard_report(
-                run_dir=_active_run.run_dir,
-                sources=_active_run.sources,
-                process_alive=_active_run.process.poll() is None,
-                pid=_active_run.process.pid,
-                started_at=_active_run.started_at,
-                return_code=_active_run.process.poll(),
-            )
-
+    try:
+        stop_pipeline(_active_run)
+    except Exception as exc:
+        if "Çalışan pipeline yok" in str(exc):
             _active_run = None
-            data["running"] = False
-            return data
+            return {
+                "ok": True,
+                "already_stopped": True,
+                "message": "Sistem zaten durdurulmuş.",
+                "running": False,
+            }
 
-        return _empty_report()
+        return {
+            "ok": False,
+            "message": f"Pipeline durdurulurken hata oluştu: {exc}",
+            "running": False,
+        }
 
+    _active_run = None
+
+    return {
+        "ok": True,
+        "message": "Kavga tespit sistemi durduruldu.",
+        "running": False,
+    }
 
 def get_status():
     global _active_run

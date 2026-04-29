@@ -9,6 +9,7 @@ from .views import (
     camera_create,
     camera_edit,
     camera_delete,
+    user_update
 )
 
 app_name = "adminx"
@@ -25,4 +26,5 @@ urlpatterns = [
     path("cameras/create/", camera_create, name="camera_create"),
     path("cameras/<int:pk>/edit/", camera_edit, name="camera_edit"),
     path("cameras/<int:pk>/delete/", camera_delete, name="camera_delete"),
+    path("users/<int:pk>/edit/", user_update, name="user_update"),
 ]

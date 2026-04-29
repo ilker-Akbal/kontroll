@@ -1,11 +1,10 @@
 from __future__ import annotations
-
+from accounts.decorators import role_required
 import hashlib
 import json
 import mimetypes
 import time
 from pathlib import Path
-
 import cv2
 from django.conf import settings
 from django.contrib import messages
@@ -15,17 +14,33 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.timezone import now
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
-
 from services.pipeline_bridge.fight_runner import start_pipeline, stop_pipeline
 from services.pipeline_bridge.report_reader import build_dashboard_report
 from services.pipeline_bridge.runtime_state import runtime
 from streams.models import Camera
-
+from django.conf import settings
+from django.contrib import messages
+from django.core.cache import cache
+from services.email_service import send_email, EmailServiceError
 
 MAX_HISTORY_RUNS = 10
 MAX_HISTORY_STAGE3 = 200
 MAX_HISTORY_INCIDENTS = 200
 
+def _set_system_notice(kind: str, title: str, message: str):
+    notice = {
+        "id": f"{int(time.time() * 1000)}",
+        "kind": kind,
+        "title": title,
+        "message": message,
+        "created_at": now().isoformat(),
+    }
+
+    cache.set(SYSTEM_NOTICE_CACHE_KEY, notice, SYSTEM_NOTICE_TTL_SECONDS)
+
+
+def _get_system_notice():
+    return cache.get(SYSTEM_NOTICE_CACHE_KEY)
 
 def _serialize_camera(camera):
     return {
@@ -307,6 +322,7 @@ def _merge_camera_cards(cameras, pipeline_report):
 
 def _report_payload():
     report = _pipeline_report()
+
     return {
         "ok": True,
         "running": report["running"],
@@ -317,9 +333,9 @@ def _report_payload():
         "run_name": report.get("run_name", ""),
         "pid": report.get("pid"),
         "camera_count": report.get("camera_count", 0),
+        "notice": _get_system_notice(),
         "server_time": now().isoformat(),
     }
-
 
 def _report_signature(payload: dict) -> str:
     compact = {
@@ -327,6 +343,7 @@ def _report_signature(payload: dict) -> str:
         "run_name": payload.get("run_name"),
         "pid": payload.get("pid"),
         "camera_count": payload.get("camera_count"),
+        "notice_id": (payload.get("notice") or {}).get("id"),
         "stage3": [
             (
                 x.get("run_name"),
@@ -407,47 +424,179 @@ def status(request):
     }
     return JsonResponse(data)
 
+SYSTEM_NOTICE_CACHE_KEY = "dashboard_system_notice"
+SYSTEM_NOTICE_TTL_SECONDS = 30
+
 
 @never_cache
 @login_required
+@role_required(["admin"])
 @require_POST
 def start_detection(request):
+    is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
+
     active = runtime.get()
+
     if active is not None and active.process.poll() is None:
-        messages.warning(request, "Pipeline zaten çalışıyor.")
-        return redirect("dashboard:index")
+        message = "Kavga tespit sistemi zaten aktif durumda."
+
+        _set_system_notice(
+            kind="info",
+            title="Sistem Aktif",
+            message=message,
+        )
+
+        if is_ajax:
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "message": message,
+                    "running": True,
+                    "already_running": True,
+                    "pid": active.process.pid if getattr(active, "process", None) else None,
+                    "run_dir": str(active.run_dir) if getattr(active, "run_dir", None) else "",
+                },
+                status=200,
+            )
+
+        messages.warning(request, message)
+        return redirect("adminx:dashboard")
 
     sources = _active_sources()
+
     if not sources:
-        messages.error(request, "Aktif kamera bulunamadı.")
-        return redirect("dashboard:index")
+        message = "Aktif kamera bulunamadı."
 
-    active_run = start_pipeline(sources)
-    runtime.set(active_run)
+        if is_ajax:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "message": message,
+                    "running": False,
+                },
+                status=400,
+            )
 
-    messages.success(
-        request,
-        f"Pipeline başlatıldı. PID: {active_run.process.pid} | Run: {active_run.run_name}",
-    )
-    return redirect("dashboard:index")
+        messages.error(request, message)
+        return redirect("adminx:dashboard")
 
+    try:
+        active_run = start_pipeline(sources)
+        runtime.set(active_run)
+
+        message = "Kavga tespit sistemi başlatıldı. Aktif kameralar izleniyor."
+
+        _set_system_notice(
+            kind="success",
+            title="Sistem Başlatıldı",
+            message=message,
+        )
+
+        if is_ajax:
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "message": message,
+                    "running": True,
+                    "camera_count": len(sources),
+                    "sources": sources,
+                    "pid": active_run.process.pid if getattr(active_run, "process", None) else None,
+                    "run_dir": str(active_run.run_dir) if getattr(active_run, "run_dir", None) else "",
+                },
+                status=200,
+            )
+
+        messages.success(request, message)
+        return redirect("adminx:dashboard")
+
+    except Exception as exc:
+        message = f"Pipeline başlatılamadı: {exc}"
+
+        if is_ajax:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "message": message,
+                    "running": False,
+                },
+                status=500,
+            )
+
+        messages.error(request, message)
+        return redirect("adminx:dashboard")
 
 @never_cache
 @login_required
+@role_required(["admin"])
 @require_POST
 def stop_detection(request):
+    is_ajax = request.headers.get("x-requested-with") == "XMLHttpRequest"
+
     active = runtime.get()
+
     if active is None:
-        messages.warning(request, "Çalışan pipeline yok.")
-        return redirect("dashboard:index")
+        message = "Sistem zaten durdurulmuş."
 
-    stop_pipeline(active)
-    runtime.set(None)
+        _set_system_notice(
+            kind="warning",
+            title="Sistem Zaten Durdurulmuş",
+            message=message,
+        )
 
-    messages.success(request, "Pipeline durduruldu. Eski kayıtlar korunuyor.")
-    return redirect("dashboard:index")
+        if is_ajax:
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "message": message,
+                    "running": False,
+                    "already_stopped": True,
+                },
+                status=200,
+            )
 
+        messages.warning(request, message)
+        return redirect("adminx:dashboard")
 
+    try:
+        stop_pipeline(active)
+        runtime.set(None)
+
+        message = "Kavga tespit sistemi durduruldu. Eski kayıtlar korunuyor."
+
+        _set_system_notice(
+            kind="warning",
+            title="Sistem Durduruldu",
+            message=message,
+        )
+
+        if is_ajax:
+            return JsonResponse(
+                {
+                    "ok": True,
+                    "message": message,
+                    "running": False,
+                },
+                status=200,
+            )
+
+        messages.success(request, message)
+        return redirect("adminx:dashboard")
+
+    except Exception as exc:
+        message = f"Pipeline durdurulamadı: {exc}"
+
+        if is_ajax:
+            return JsonResponse(
+                {
+                    "ok": False,
+                    "message": message,
+                    "running": True,
+                },
+                status=500,
+            )
+
+        messages.error(request, message)
+        return redirect("adminx:dashboard")
 @never_cache
 @login_required
 @require_GET

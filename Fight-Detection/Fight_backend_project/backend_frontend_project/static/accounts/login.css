@@ -420,3 +420,34 @@ select{
     font-size: 13px;
   }
 }
+.auth-forgot {
+  margin-top: 14px;
+  text-align: center;
+}
+
+.auth-forgot a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 18px;
+  border-radius: 14px;
+  border: 1px solid #dbeafe;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  transition:
+    transform 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.auth-forgot a:hover {
+  transform: translateY(-1px);
+  background: #dbeafe;
+  border-color: #bfdbfe;
+  box-shadow: 0 10px 22px rgba(30, 58, 138, 0.12);
+}

@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}Admin Panel{% endblock %}</title>
+
     <style>
 :root{
   --bg: #f4f8fc;
@@ -196,13 +197,27 @@ img{
   font-weight: 800;
 }
 
-.sidebar-card{
+.sidebar {
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.sidebar-card {
+  position: sticky;
+  bottom: 18px;
   margin-top: auto;
+  flex-shrink: 0;
+
   padding: 18px;
   border-radius: 22px;
   background: linear-gradient(135deg, #1677ff, #0ea5e9);
   color: #fff;
-  box-shadow: 0 18px 40px rgba(22,119,255,0.22);
+  box-shadow: 0 18px 40px rgba(22, 119, 255, 0.22);
+  z-index: 20;
 }
 
 .sidebar-card__eyebrow{
@@ -798,9 +813,141 @@ table tbody tr:hover td{
   margin: 8px 0;
 }
 
+/* ADMIN SYSTEM STATUS */
+.admin-live-status {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) repeat(2, minmax(170px, 0.4fr));
+  gap: 16px;
+  margin: 0 6px 22px;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid var(--stroke);
+  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,251,255,0.94));
+  box-shadow: var(--shadow-md);
+}
+
+.admin-live-status__main {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.admin-live-status__icon {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 16px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 22px;
+  box-shadow: var(--shadow-sm);
+}
+
+.admin-live-status__content {
+  min-width: 0;
+}
+
+.admin-live-status__label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 0 10px;
+  margin-bottom: 7px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-live-status h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 850;
+  letter-spacing: -0.035em;
+}
+
+.admin-live-status p {
+  margin: 6px 0 0;
+  color: var(--text-soft);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.admin-live-status__stat {
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid var(--stroke);
+  background: #ffffff;
+  box-shadow: var(--shadow-sm);
+}
+
+.admin-live-status__stat span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-live-status__stat strong {
+  display: block;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 900;
+  word-break: break-word;
+}
+
+.admin-live-status.is-running {
+  border-color: rgba(22, 163, 74, 0.22);
+}
+
+.admin-live-status.is-running .admin-live-status__icon {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.admin-live-status.is-running #admin-system-running {
+  color: var(--success);
+}
+
+.admin-live-status.is-stopped {
+  border-color: rgba(220, 38, 38, 0.22);
+}
+
+.admin-live-status.is-stopped .admin-live-status__icon {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.admin-live-status.is-stopped #admin-system-running {
+  color: var(--danger);
+}
+
+.admin-live-status.is-error {
+  border-color: rgba(217, 119, 6, 0.24);
+}
+
+.admin-live-status.is-error .admin-live-status__icon {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
 @media (max-width: 1120px){
   :root{
     --sidebar-w: 250px;
+  }
+
+  .admin-live-status {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -894,6 +1041,8 @@ table tbody tr:hover td{
   }
 }
     </style>
+
+    {% block extra_css %}{% endblock %}
   </head>
 
   <body>
@@ -963,16 +1112,9 @@ table tbody tr:hover td{
             <div class="topbar-left">
               <div class="page-chip">Live Admin</div>
 
-              <div class="searchbar">
-                <input
-                  type="text"
-                  placeholder="Kamera, kullanıcı veya işlem ara..."
-                />
-              </div>
             </div>
 
             <div class="top-actions">
-              <div class="icon-btn">🔔</div>
               <div class="icon-btn">⚙️</div>
 
               <div class="user-badge">
@@ -1007,9 +1149,109 @@ table tbody tr:hover td{
             </div>
           </div>
 
+          <div class="admin-live-status" id="admin-live-status-card">
+            <div class="admin-live-status__main">
+              <div class="admin-live-status__icon" id="admin-system-status-icon">●</div>
+
+              <div class="admin-live-status__content">
+                <span class="admin-live-status__label">İşlem Durumu</span>
+                <h3>Kavga Tespit Sistemi</h3>
+                <p id="admin-system-status-text">
+                  Sistem durumu kontrol ediliyor...
+                </p>
+              </div>
+            </div>
+
+            <div class="admin-live-status__stat">
+              <span>Durum</span>
+              <strong id="admin-system-running">-</strong>
+            </div>
+
+            <div class="admin-live-status__stat">
+              <span>Aktif Kamera</span>
+              <strong id="admin-system-camera-count">-</strong>
+            </div>
+          </div>
+
           {% block content %}{% endblock %}
         </main>
       </div>
     </div>
+
+    <script>
+      async function updateAdminSystemStatus() {
+        try {
+          const response = await fetch("{% url 'dashboard:events' %}", {
+            method: "GET",
+            headers: {
+              "X-Requested-With": "XMLHttpRequest"
+            },
+            cache: "no-store"
+          });
+
+          if (!response.ok) {
+            throw new Error("Durum bilgisi alınamadı.");
+          }
+
+          const data = await response.json();
+
+          if (!data.ok) {
+            throw new Error("Geçersiz sistem yanıtı.");
+          }
+
+          const card = document.getElementById("admin-live-status-card");
+          const icon = document.getElementById("admin-system-status-icon");
+          const text = document.getElementById("admin-system-status-text");
+          const runningEl = document.getElementById("admin-system-running");
+          const cameraCountEl = document.getElementById("admin-system-camera-count");
+
+          const running = !!data.running;
+
+          if (running) {
+            card.classList.add("is-running");
+            card.classList.remove("is-stopped", "is-error");
+
+            icon.textContent = "●";
+            text.textContent = "Sistem aktif olarak çalışıyor.";
+            runningEl.textContent = "Aktif";
+          } else {
+            card.classList.add("is-stopped");
+            card.classList.remove("is-running", "is-error");
+
+            icon.textContent = "●";
+            text.textContent = "Sistem şu anda durdurulmuş.";
+            runningEl.textContent = "Durduruldu";
+          }
+
+          cameraCountEl.textContent = data.camera_count ?? 0;
+        } catch (error) {
+          const card = document.getElementById("admin-live-status-card");
+          const text = document.getElementById("admin-system-status-text");
+          const runningEl = document.getElementById("admin-system-running");
+
+          if (card) {
+            card.classList.add("is-error");
+            card.classList.remove("is-running", "is-stopped");
+          }
+
+          if (text) {
+            text.textContent = "Sistem durumu okunamadı.";
+          }
+
+          if (runningEl) {
+            runningEl.textContent = "Bilinmiyor";
+          }
+
+          console.error("Admin sistem durumu hatası:", error);
+        }
+      }
+
+      document.addEventListener("DOMContentLoaded", function () {
+        updateAdminSystemStatus();
+        setInterval(updateAdminSystemStatus, 5000);
+      });
+    </script>
+
+    {% block extra_scripts %}{% endblock %}
   </body>
 </html>

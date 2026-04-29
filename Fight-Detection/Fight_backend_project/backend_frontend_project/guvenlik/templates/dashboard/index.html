@@ -1,655 +1,652 @@
-{% load static %}
-<!doctype html>
-<html lang="tr">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Güvenlik Dashboard</title>
+{% extends "base.html" %}
 
-    <link rel="stylesheet" href="{% static 'dashboard/dashboard.css' %}?v=2" />
-    <link rel="stylesheet" href="{% static 'navbar/navbar.css' %}?v=3" />
-    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css" />
+{% block title %}Güvenlik Dashboard{% endblock %}
 
-    <style>
-      .table-shell {
-        overflow-x: auto;
-        margin-bottom: 28px;
-        background: #fff;
-        border: 1px solid #e5e7eb;
-        border-radius: 12px;
-        padding: 10px;
-      }
-      .dashboard-table {
-        width: 100% !important;
-        border-collapse: collapse !important;
-        background: #fff;
-      }
-      .dashboard-table thead th {
-        background: #f8fafc;
-        font-weight: 700;
-        border-bottom: 1px solid #e5e7eb !important;
-        white-space: nowrap;
-      }
-      .dashboard-table th,
-      .dashboard-table td {
-        padding: 10px !important;
-        vertical-align: middle;
-      }
-      .dashboard-table video {
-        max-width: 260px;
-        border-radius: 8px;
-      }
-      .dataTables_wrapper {
-        padding-top: 6px;
-      }
-      .dataTables_length,
-      .dataTables_filter {
-        margin-bottom: 12px;
-      }
-      .dataTables_filter input,
-      .dataTables_length select {
-        border: 1px solid #d1d5db;
-        border-radius: 8px;
-        padding: 6px 8px;
-        background: #fff;
-      }
-      .dataTables_info,
-      .dataTables_paginate {
-        margin-top: 12px !important;
-      }
-      .dataTables_wrapper .dataTables_paginate .paginate_button {
-        border-radius: 8px !important;
-      }
-      .run-badge {
-        display: inline-block;
-        padding: 4px 8px;
-        border-radius: 999px;
-        background: #eef2ff;
-        color: #3730a3;
-        font-size: 12px;
-        font-weight: 600;
-      }
-      .status-badge {
-        display: inline-block;
-        padding: 4px 8px;
-        border-radius: 999px;
-        font-size: 12px;
-        font-weight: 700;
-      }
-      .status-fight {
-        background: #fee2e2;
-        color: #991b1b;
-      }
-      .status-nonfight {
-        background: #dcfce7;
-        color: #166534;
-      }
-      .status-other {
-        background: #f3f4f6;
-        color: #374151;
-      }
-    </style>
-  </head>
-  <body>
-    <header class="topbar">
-      <div class="topbar__inner">
-        <div class="topbar__left">
-          <div class="brand">
-            <div class="brand__logo">FD</div>
-            <div class="brand__text">
-              <strong>Fight Detection Dashboard</strong>
-              <span>Canlı kamera izleme ekranı</span>
-            </div>
-          </div>
-        </div>
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css" />
+{% endblock %}
 
-        <div class="topbar__right">
-          {% if request.user.is_authenticated %}
-          <div class="userbox">
-            <div class="userbox__meta">
-              <span class="userbox__welcome">Hoş geldin</span>
-              <strong class="userbox__name">{{ request.user.username }}</strong>
-              {% if request.user.profile %}
-              <span class="userbox__role">{{ request.user.profile.role }}</span>
-              {% endif %}
-            </div>
+{% block navbar_status %}
+<div id="live-status-badge" class="system-status">
+  {% if pipeline.running %}
+  <span class="system-status__badge system-status__badge--on">
+    <span class="system-status__dot"></span>
+    Sistem Aktif
+  </span>
+  {% else %}
+  <span class="system-status__badge system-status__badge--off">
+    <span class="system-status__dot"></span>
+    Sistem Durduruldu
+  </span>
+  {% endif %}
+</div>
+{% endblock %}
 
-            <form method="post" action="{% url 'accounts:logout' %}" class="logout-form">
-              {% csrf_token %}
-              <button type="submit" class="logout-btn">Çıkış Yap</button>
-            </form>
-          </div>
+{% block content %}
+<div class="page page--single" id="dashboard-overview">
+  <section class="panel right-panel">
+    <div class="panel__header">
+      <div>
+        <h2>Kavga Tespit Kontrolü</h2>
+      </div>
+    </div>
+
+    <div class="dashboard-summary dashboard-summary--compact" id="pipeline-summary">
+      <div class="summary-card">
+        <span>Sistem Durumu</span>
+        <strong>
+          {% if pipeline.running %}
+          Çalışıyor
           {% else %}
-          <a href="{% url 'accounts:login' %}" class="login-link">Giriş Yap</a>
+          Duruyor
+          {% endif %}
+        </strong>
+      </div>
+
+      <div class="summary-card">
+        <span>Aktif Kamera Sayısı</span>
+        <strong>{{ pipeline.camera_count|default:"0" }}</strong>
+      </div>
+    </div>
+
+    <div class="panel__header panel__header--spaced" id="camera-section">
+      <div>
+        <h2>Bağlı Kameralar</h2>
+        <p>
+          Aktif kameralar küçük kartlar halinde listelenir. Görüntüye basınca
+          büyük izleme ekranı açılır.
+        </p>
+      </div>
+    </div>
+
+    <div class="camera-cards camera-cards--compact">
+      {% for camera in camera_cards %}
+      <div
+        class="camera-card camera-card--compact"
+        data-camera-id="{{ camera.camera_id }}"
+        data-camera-name="{{ camera.name }}"
+      >
+        <div class="camera-card__header">
+          <div>
+            <strong>{{ camera.name }}</strong>
+            <small>{{ camera.camera_id }}</small>
+          </div>
+
+          {% if camera.is_active %}
+          <span class="camera-status camera-status--active">Aktif</span>
+          {% else %}
+          <span class="camera-status camera-status--passive">Pasif</span>
           {% endif %}
         </div>
-      </div>
-    </header>
 
-    <main class="page-shell">
-      {% if messages %}
-      <div style="margin-bottom: 16px;">
-        {% for message in messages %}
-        <div style="padding: 12px 14px; margin-bottom: 10px; border-radius: 10px; background: #f3f4f6; border: 1px solid #d1d5db;">
-          {{ message }}
+        <button
+          type="button"
+          class="camera-open-btn"
+          data-camera-name="{{ camera.name }}"
+          data-camera-id="{{ camera.camera_id }}"
+          aria-label="{{ camera.name }} kamerasını büyüt"
+        >
+          <div class="camera-card__stream camera-card__stream--compact">
+            <img
+              src="{% url 'dashboard:stream' camera.camera_id %}"
+              alt="{{ camera.name }} canlı akış"
+            />
+          </div>
+
+          <span class="camera-open-hint">Büyütmek için tıkla</span>
+        </button>
+      </div>
+      {% empty %}
+      <div class="empty-state">
+        Şu anda sistemde aktif kamera bulunmuyor.
+      </div>
+      {% endfor %}
+    </div>
+
+    <div id="camera-modal" class="camera-modal" aria-hidden="true">
+      <div class="camera-modal__backdrop" data-camera-modal-close></div>
+
+      <div class="camera-modal__content" role="dialog" aria-modal="true">
+        <div class="camera-modal__header">
+          <div>
+            <strong id="camera-modal-title">Kamera Görüntüsü</strong>
+            <span id="camera-modal-subtitle">Canlı akış</span>
+          </div>
+
+          <button type="button" class="camera-modal__close" data-camera-modal-close>
+            Kapat
+          </button>
         </div>
-        {% endfor %}
+
+        <div class="camera-modal__stream">
+          <img id="camera-modal-img" src="" alt="Büyütülmüş kamera görüntüsü" />
+        </div>
       </div>
-      {% endif %}
+    </div>
 
-      <div class="page" style="grid-template-columns: 1fr;">
-        <section class="panel right-panel">
-          <div class="panel__header">
-            <h2>Kavga Tespit Kontrolü</h2>
-            <p>Aktif kameralar admin panelinden gelir. Buradan tespit sürecini başlatabilir, durdurabilir ve birleşmiş incident kayıtlarını izleyebilirsin.</p>
-          </div>
-
-          <div class="pipeline-toolbar" style="margin-bottom: 20px; padding: 16px; border: 1px solid #ddd; border-radius: 12px; background: #fff;">
-            <div style="display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 12px;">
-              <form method="post" action="{% url 'dashboard:start_detection' %}" style="display: inline-block;">
-                {% csrf_token %}
-                <button type="submit" class="logout-btn">Tespiti Başlat</button>
-              </form>
-
-              <form method="post" action="{% url 'dashboard:stop_detection' %}" style="display: inline-block;">
-                {% csrf_token %}
-                <button type="submit" class="logout-btn">Tespiti Durdur</button>
-              </form>
-            </div>
-
-            <div id="pipeline-summary" style="line-height: 1.8;">
-              <strong>Durum:</strong>
-              {% if pipeline.running %}
-                <span style="color: green;">Çalışıyor</span>
-              {% else %}
-                <span style="color: red;">Duruyor</span>
-              {% endif %}
-              <br />
-              <strong>PID:</strong> {{ pipeline.pid|default:"-" }}
-              <br />
-              <strong>Run:</strong> {{ pipeline.run_name|default:"-" }}
-              <br />
-              <strong>Kamera Sayısı:</strong> {{ pipeline.camera_count|default:"0" }}
-            </div>
-          </div>
-
-          <div class="panel__header" style="margin-top: 24px;">
-            <h2>Bağlı Kameralar</h2>
-            <p>Aktif kameralar ve anlık pipeline bilgileri burada görünür.</p>
-          </div>
-
-          <div class="camera-cards">
-            {% for camera in camera_cards %}
-            <div class="camera-card" data-camera-id="{{ camera.camera_id }}">
-              <div class="camera-card__header">
-                <strong>{{ camera.name }}</strong>
-                <span>{% if camera.is_active %}Aktif{% else %}Pasif{% endif %}</span>
-              </div>
-
-              <div class="camera-card__stream">
-                <img src="{% url 'dashboard:stream' camera.camera_id %}" alt="{{ camera.name }} canlı akış" />
-              </div>
-
-              <div class="camera-card__meta">
-                <div>
-                  <strong>Kamera ID</strong><br />
-                  {{ camera.camera_id }}
-                </div>
-
-                <div>
-                  <strong>Kaynak</strong><br />
-                  <span class="camera-source-text">{{ camera.source }}</span>
-                </div>
-
-                <div>
-                  <strong>Açıklama</strong><br />
-                  {% if camera.description %}
-                    {{ camera.description }}
-                  {% else %}
-                    Açıklama girilmemiş.
-                  {% endif %}
-                </div>
-
-                <div>
-                  <strong>Durum</strong><br />
-                  {% if camera.is_active %}İzlemeye uygun{% else %}Pasif{% endif %}
-                </div>
-              </div>
-
-              <div style="margin-top: 14px; padding-top: 14px; border-top: 1px solid #e5e7eb; display: grid; gap: 10px;">
-                <div><strong>Pipeline Aşaması</strong><br /><span class="js-stage">{{ camera.stage|default:"-" }}</span></div>
-                <div><strong>Detay</strong><br /><span class="js-detail">{{ camera.detail|default:"-" }}</span></div>
-                <div><strong>Son Zaman</strong><br /><span class="js-last-ts">{{ camera.last_ts|default:"-" }}</span></div>
-                <div><strong>Kişi Sayısı</strong><br /><span class="js-persons">{{ camera.persons }}</span></div>
-                <div><strong>Pair OK</strong><br /><span class="js-pair-ok">{{ camera.pair_ok }}</span></div>
-                <div><strong>Pose Score</strong><br /><span class="js-pose-score">{{ camera.pose_score }}</span></div>
-                <div><strong>Stage3 Sonucu</strong><br /><span class="js-stage3-label">{{ camera.latest_stage3_label|default:"-" }}</span> / <span class="js-stage3-prob">{{ camera.latest_stage3_prob }}</span></div>
-                <div><strong>Son Incident</strong><br /><span class="js-incident-label">{{ camera.latest_incident_label|default:"-" }}</span> / <span class="js-incident-parts">{{ camera.latest_incident_part_count|default:"-" }}</span></div>
-                <div><strong>Kuyruk</strong><br /><span class="js-queue-status">{{ camera.queue_status|default:"-" }}</span> (<span class="js-queue-reason">{{ camera.queue_reason|default:"-" }}</span>)</div>
-              </div>
-            </div>
-            {% empty %}
-            <div class="empty-state">Şu anda sistemde aktif kamera bulunmuyor.</div>
-            {% endfor %}
-          </div>
-
-          <div class="panel__header" style="margin-top: 24px;">
-            <h2>Son Stage3 Sonuçları</h2>
-            <p>Kısa stage3 kararları burada görünür. Clip gösterilmez.</p>
-          </div>
-
-          <div class="table-shell">
-            <table id="stage3-table" class="dashboard-table display">
-              <thead>
-                <tr>
-                  <th>Run</th>
-                  <th>Kamera</th>
-                  <th>Event ID</th>
-                  <th>Başlangıç</th>
-                  <th>Bitiş</th>
-                  <th>Fight Prob</th>
-                  <th>Etiket</th>
-                  <th>Pose Max</th>
-                  <th>Pose Mean</th>
-                </tr>
-              </thead>
-              <tbody id="stage3-table-body">
-                {% for row in pipeline.recent_stage3 %}
-                <tr data-row-key="{{ row.run_name|default:'-' }}__{{ row.camera_id|default:'-' }}__{{ row.event_id|default:'-' }}__{{ row.fight_prob|default:'-' }}__{{ row.fight_label|default:'-' }}">
-                  <td><span class="run-badge">{{ row.run_name|default:"-" }}</span></td>
-                  <td>{{ row.camera_id }}</td>
-                  <td>{{ row.event_id }}</td>
-                  <td>{{ row.event_start }}</td>
-                  <td>{{ row.event_end }}</td>
-                  <td>{{ row.fight_prob }}</td>
-                  <td><span class="status-badge status-other">{{ row.fight_label }}</span></td>
-                  <td>{{ row.pose_score_max }}</td>
-                  <td>{{ row.pose_score_mean }}</td>
-                </tr>
-                {% empty %}{% endfor %}
-              </tbody>
-            </table>
-          </div>
-
-          <div class="panel__header" style="margin-top: 24px;">
-            <h2>Birleşmiş Incident Kayıtları</h2>
-            <p>İzlenecek asıl kayıtlar bunlardır. Sadece birleşmiş incident clip’leri gösterilir.</p>
-          </div>
-
-          <div class="table-shell">
-            <table id="incidents-table" class="dashboard-table display">
-              <thead>
-                <tr>
-                  <th>Run</th>
-                  <th>Kamera</th>
-                  <th>Incident ID</th>
-                  <th>Başlangıç</th>
-                  <th>Bitiş</th>
-                  <th>Parça</th>
-                  <th>Max Prob</th>
-                  <th>Mean Prob</th>
-                  <th>Etiket</th>
-                  <th>Clip</th>
-                </tr>
-              </thead>
-              <tbody id="incidents-table-body">
-                {% for row in pipeline.recent_incidents %}
-                <tr data-row-key="{{ row.run_name|default:'-' }}__{{ row.camera_id|default:'-' }}__{{ row.incident_id|default:'-' }}__{{ row.clip_path|default:'-' }}">
-                  <td><span class="run-badge">{{ row.run_name|default:"-" }}</span></td>
-                  <td>{{ row.camera_id }}</td>
-                  <td>{{ row.incident_id }}</td>
-                  <td>{{ row.start_ts }}</td>
-                  <td>{{ row.end_ts }}</td>
-                  <td>{{ row.part_count }}</td>
-                  <td>{{ row.max_prob }}</td>
-                  <td>{{ row.mean_prob }}</td>
-                  <td><span class="status-badge status-other">{{ row.final_label }}</span></td>
-                  <td>
-                    {% if row.run_name and row.clip_path %}
-                      <video width="260" controls preload="metadata">
-                        <source src="/dashboard/incident-video/{{ row.run_name }}/{{ row.clip_path }}" type="video/mp4" />
-                      </video>
-                    {% else %}
-                      Clip yok
-                    {% endif %}
-                  </td>
-                </tr>
-                {% empty %}{% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </section>
+    <div class="panel__header panel__header--spaced" id="incident-section">
+      <div>
+        <h2>Kavga Kayıtları</h2>
       </div>
-    </main>
+    </div>
 
-    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
-    <script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+    <div class="incident-table-shell">
+      <table id="incidents-table" class="incident-table display">
+        <thead>
+          <tr>
+            <th>Kamera</th>
+            <th>Olay ID</th>
+            <th>Başlangıç</th>
+            <th>Bitiş</th>
+            <th>Etiket</th>
+            <th>Clip</th>
+          </tr>
+        </thead>
 
-    <script>
-      let stage3Table = null;
-      let incidentsTable = null;
+        <tbody id="incidents-table-body">
+          {% for row in pipeline.recent_incidents %}
+          <tr data-row-key="{{ row.run_name|default:'-' }}__{{ row.camera_id|default:'-' }}__{{ row.incident_id|default:'-' }}__{{ row.clip_path|default:'-' }}">
+            <td>{{ row.camera_id }}</td>
+            <td>{{ row.incident_id }}</td>
+            <td>{{ row.start_ts }}</td>
+            <td>{{ row.end_ts }}</td>
+            <td>
+              <span class="status-badge status-other">{{ row.final_label }}</span>
+            </td>
+<td class="incident-clip-cell">
+  {% if row.run_name and row.clip_path %}
+  <div class="incident-video-wrap">
+    <video class="incident-video" controls preload="metadata">
+      <source src="/dashboard/incident-video/{{ row.run_name }}/{{ row.clip_path }}" type="video/mp4" />
+    </video>
+  </div>
+  {% else %}
+  <span class="incident-empty">Clip yok</span>
+  {% endif %}
+</td>
+          </tr>
+          {% empty %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
 
-      const stage3RowMap = new Map();
-      const incidentRowMap = new Map();
+    <div id="incident-video-modal" class="incident-video-modal" aria-hidden="true">
+      <div class="incident-video-modal__backdrop" data-incident-video-close></div>
 
-      const datatableLang = {
-        decimal: "",
-        emptyTable: "Kayıt bulunamadı",
-        info: "_TOTAL_ kaydın _START_ - _END_ arası gösteriliyor",
-        infoEmpty: "0 kayıt gösteriliyor",
-        infoFiltered: "(_MAX_ kayıt içinden filtrelendi)",
-        infoPostFix: "",
-        thousands: ".",
-        lengthMenu: "Sayfada _MENU_ kayıt göster",
-        loadingRecords: "Yükleniyor...",
-        processing: "İşleniyor...",
-        search: "Filtrele:",
-        zeroRecords: "Eşleşen kayıt bulunamadı",
-        paginate: {
-          first: "İlk",
-          last: "Son",
-          next: "Sonraki",
-          previous: "Önceki"
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+<script src="https://cdn.datatables.net/1.13.8/js/jquery.dataTables.min.js"></script>
+
+<script>
+  let incidentsTable = null;
+  const incidentRowMap = new Map();
+
+  const datatableLang = {
+    decimal: "",
+    emptyTable: "Kayıt bulunamadı",
+    info: "_TOTAL_ kaydın _START_ - _END_ arası gösteriliyor",
+    infoEmpty: "0 kayıt gösteriliyor",
+    infoFiltered: "(_MAX_ kayıt içinden filtrelendi)",
+    infoPostFix: "",
+    thousands: ".",
+    lengthMenu: "Sayfada _MENU_ kayıt göster",
+    loadingRecords: "Yükleniyor...",
+    processing: "İşleniyor...",
+    search: "Filtrele:",
+    zeroRecords: "Eşleşen kayıt bulunamadı",
+    paginate: {
+      first: "İlk",
+      last: "Son",
+      next: "Sonraki",
+      previous: "Önceki"
+    }
+  };
+
+  function escapeHtml(value) {
+    if (value === null || value === undefined) return "-";
+
+    return String(value)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function buildIncidentUrl(runName, clipPath) {
+    if (!runName || !clipPath) return "";
+
+    const safeRun = encodeURIComponent(runName);
+    const safeClip = String(clipPath)
+      .split("/")
+      .map(part => encodeURIComponent(part))
+      .join("/");
+
+    return `/dashboard/incident-video/${safeRun}/${safeClip}/`;
+  }
+
+  function statusBadge(statusText) {
+    const raw = String(statusText || "-");
+    const normalized = raw.toLowerCase();
+
+    let cls = "status-other";
+
+    if (normalized.includes("non") || normalized.includes("normal")) {
+      cls = "status-nonfight";
+    } else if (normalized.includes("fight")) {
+      cls = "status-fight";
+    }
+
+    return `<span class="status-badge ${cls}">${escapeHtml(raw)}</span>`;
+  }
+
+  function incidentKey(row) {
+    return `${row.run_name || "-"}__${row.camera_id || "-"}__${row.incident_id || "-"}__${row.clip_path || "-"}`;
+  }
+
+  function buildClipButtonHtml(clipUrl) {
+    if (!clipUrl) {
+      return `<span class="incident-empty">Clip yok</span>`;
+    }
+
+    return `
+      <button type="button" class="incident-clip-btn" data-clip-url="${clipUrl}">
+        <span class="incident-clip-thumb">
+          <span class="incident-clip-play">▶</span>
+        </span>
+        <span class="incident-clip-text">Clip izle</span>
+      </button>
+    `;
+  }
+
+  function initTables() {
+    const incidentsEl = document.getElementById("incidents-table");
+
+    if (incidentsEl) {
+      incidentsTable = $("#incidents-table").DataTable({
+        pageLength: 5,
+        lengthMenu: [[5, 10, 25, 50, 100], [5, 10, 25, 50, 100]],
+        order: [[2, "desc"]],
+        language: datatableLang,
+        responsive: false,
+        autoWidth: false,
+        columnDefs: [{ orderable: false, targets: [5] }]
+      });
+    }
+
+    rebuildMaps();
+  }
+
+  function rebuildMaps() {
+    incidentRowMap.clear();
+
+    if (incidentsTable) {
+      incidentsTable.rows().every(function () {
+        const node = this.node();
+        const key = node?.getAttribute("data-row-key");
+
+        if (key) {
+          incidentRowMap.set(key, this);
         }
-      };
+      });
+    }
+  }
 
-      function escapeHtml(value) {
-        if (value === null || value === undefined) return "-";
-        return String(value)
-          .replaceAll("&", "&amp;")
-          .replaceAll("<", "&lt;")
-          .replaceAll(">", "&gt;")
-          .replaceAll('"', "&quot;")
-          .replaceAll("'", "&#039;");
-      }
+  function updateLiveStatusBadge(running) {
+    const el = document.getElementById("live-status-badge");
 
-      function buildIncidentUrl(runName, clipPath) {
-        if (!runName || !clipPath) return "";
-        const safeRun = encodeURIComponent(runName);
-        const safeClip = String(clipPath).split("/").map(part => encodeURIComponent(part)).join("/");
-        return `/dashboard/incident-video/${safeRun}/${safeClip}/`;
-      }
+    if (!el) return;
 
-      function statusBadge(statusText) {
-        const raw = String(statusText || "-");
-        const normalized = raw.toLowerCase();
+    if (running) {
+      el.innerHTML = `
+        <span class="system-status__badge system-status__badge--on">
+          <span class="system-status__dot"></span>
+          Sistem Aktif
+        </span>
+      `;
+    } else {
+      el.innerHTML = `
+        <span class="system-status__badge system-status__badge--off">
+          <span class="system-status__dot"></span>
+          Sistem Durduruldu
+        </span>
+      `;
+    }
+  }
 
-        let cls = "status-other";
-        if (normalized.includes("fight")) cls = "status-fight";
-        else if (normalized.includes("non") || normalized.includes("normal")) cls = "status-nonfight";
+  function updatePipelineSummary(data) {
+    const el = document.getElementById("pipeline-summary");
 
-        return `<span class="status-badge ${cls}">${escapeHtml(raw)}</span>`;
-      }
+    if (!el) return;
 
-      function runBadge(runName) {
-        return `<span class="run-badge">${escapeHtml(runName || "-")}</span>`;
-      }
+    const running = !!data.running;
 
-      function stage3Key(row) {
-        return `${row.run_name || "-"}__${row.camera_id || "-"}__${row.event_id || "-"}__${row.fight_prob || "-"}__${row.fight_label || "-"}`;
-      }
+    el.innerHTML = `
+      <div class="summary-card">
+        <span>Sistem Durumu</span>
+        <strong>${running ? "Çalışıyor" : "Duruyor"}</strong>
+      </div>
 
-      function incidentKey(row) {
-        return `${row.run_name || "-"}__${row.camera_id || "-"}__${row.incident_id || "-"}__${row.clip_path || "-"}`;
-      }
+      <div class="summary-card">
+        <span>Aktif Kamera Sayısı</span>
+        <strong>${escapeHtml(data.camera_count ?? 0)}</strong>
+      </div>
+    `;
+  }
 
-      function initTables() {
-        stage3Table = $("#stage3-table").DataTable({
-          pageLength: 5,
-          lengthMenu: [[5, 10, 25, 50, 100], [5, 10, 25, 50, 100]],
-          order: [[3, "desc"]],
-          language: datatableLang,
-          responsive: false,
-          autoWidth: false
-        });
+  function syncIncidents(rows) {
+    if (!incidentsTable) return;
 
-        incidentsTable = $("#incidents-table").DataTable({
-          pageLength: 5,
-          lengthMenu: [[5, 10, 25, 50, 100], [5, 10, 25, 50, 100]],
-          order: [[3, "desc"]],
-          language: datatableLang,
-          responsive: false,
-          autoWidth: false,
-          columnDefs: [{ orderable: false, targets: [9] }]
-        });
+    (rows || []).forEach(row => {
+      const key = incidentKey(row);
+      const clipUrl = buildIncidentUrl(row.run_name, row.clip_path);
+      const clipHtml = clipUrl
+  ? `
+    <div class="incident-video-wrap">
+      <video class="incident-video" controls preload="metadata">
+        <source src="${clipUrl}" type="video/mp4" />
+      </video>
+    </div>
+  `
+  : `<span class="incident-empty">Clip yok</span>`;
+
+      const cells = [
+        escapeHtml(row.camera_id),
+        escapeHtml(row.incident_id),
+        escapeHtml(row.start_ts),
+        escapeHtml(row.end_ts),
+        statusBadge(row.final_label),
+        clipHtml
+      ];
+
+      if (!incidentRowMap.has(key)) {
+        const rowApi = incidentsTable.row.add(cells);
+        incidentsTable.draw(false);
+
+        const node = rowApi.node();
+
+        if (node) {
+          node.setAttribute("data-row-key", key);
+        }
 
         rebuildMaps();
+        return;
       }
 
-      function rebuildMaps() {
-        stage3RowMap.clear();
-        incidentRowMap.clear();
+      const rowApi = incidentRowMap.get(key);
+      const node = rowApi.node();
 
-        stage3Table.rows().every(function () {
-          const node = this.node();
-          const key = node?.getAttribute("data-row-key");
-          if (key) stage3RowMap.set(key, this);
-        });
+      if (!node) return;
 
-        incidentsTable.rows().every(function () {
-          const node = this.node();
-          const key = node?.getAttribute("data-row-key");
-          if (key) incidentRowMap.set(key, this);
-        });
+      const tds = node.querySelectorAll("td");
+
+      if (tds.length >= 6) {
+        tds[0].textContent = row.camera_id ?? "-";
+        tds[1].textContent = row.incident_id ?? "-";
+        tds[2].textContent = row.start_ts ?? "-";
+        tds[3].textContent = row.end_ts ?? "-";
+        tds[4].innerHTML = cells[4];
+        tds[5].innerHTML = clipHtml;
       }
+    });
+  }
 
-      function updatePipelineSummary(data) {
-        const el = document.getElementById("pipeline-summary");
-        if (!el) return;
+  function initIncidentVideoModal() {
+    const modal = document.getElementById("incident-video-modal");
+    const player = document.getElementById("incident-video-player");
+    const source = document.getElementById("incident-video-source");
 
-        const running = !!data.running;
-        const statusText = running
-          ? '<span style="color: green;">Çalışıyor</span>'
-          : '<span style="color: red;">Duruyor</span>';
+    if (!modal || !player || !source) return;
 
-        el.innerHTML = `
-          <strong>Durum:</strong> ${statusText}
-          <br />
-          <strong>PID:</strong> ${escapeHtml(data.pid ?? "-")}
-          <br />
-          <strong>Run:</strong> ${escapeHtml(data.run_name || "-")}
-          <br />
-          <strong>Kamera Sayısı:</strong> ${escapeHtml(data.camera_count ?? 0)}
-        `;
+    function openModal(url) {
+      source.src = url;
+      player.load();
+
+      modal.classList.add("is-open");
+      modal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("incident-video-modal-open");
+    }
+
+    function closeModal() {
+      player.pause();
+      source.src = "";
+      player.load();
+
+      modal.classList.remove("is-open");
+      modal.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("incident-video-modal-open");
+    }
+
+    document.addEventListener("click", function (event) {
+      const button = event.target.closest(".incident-clip-btn");
+
+      if (!button) return;
+
+      const url = button.dataset.clipUrl;
+
+      if (!url) return;
+
+      openModal(url);
+    });
+
+    document.querySelectorAll("[data-incident-video-close]").forEach(function (el) {
+      el.addEventListener("click", closeModal);
+    });
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && modal.classList.contains("is-open")) {
+        closeModal();
       }
+    });
+  }
 
-      function syncStage3(stage3Rows) {
-        if (!stage3Table) return;
+  let lastDashboardNoticeId = sessionStorage.getItem("lastDashboardNoticeId") || "";
 
-        (stage3Rows || []).forEach(row => {
-          const key = stage3Key(row);
+  function showDashboardNoticeModal(notice) {
+    if (!notice || !notice.id) return;
 
-          const cells = [
-            runBadge(row.run_name),
-            escapeHtml(row.camera_id),
-            escapeHtml(row.event_id),
-            escapeHtml(row.event_start),
-            escapeHtml(row.event_end),
-            escapeHtml(row.fight_prob),
-            statusBadge(row.fight_label),
-            escapeHtml(row.pose_score_max),
-            escapeHtml(row.pose_score_mean)
-          ];
+    const oldModal = document.getElementById("dashboard-notice-modal");
 
-          if (!stage3RowMap.has(key)) {
-            const rowApi = stage3Table.row.add(cells);
-            stage3Table.draw(false);
-            const node = rowApi.node();
-            if (node) node.setAttribute("data-row-key", key);
-            rebuildMaps();
-            return;
-          }
+    if (oldModal) {
+      oldModal.remove();
+    }
 
-          const rowApi = stage3RowMap.get(key);
-          const node = rowApi.node();
-          if (!node) return;
+    const kind = notice.kind || "info";
+    const title = notice.title || "Sistem Bildirimi";
+    const message = notice.message || "Sistem durumu güncellendi.";
 
-          const tds = node.querySelectorAll("td");
-          if (tds.length >= 9) {
-            tds[0].innerHTML = cells[0];
-            tds[1].textContent = row.camera_id ?? "-";
-            tds[2].textContent = row.event_id ?? "-";
-            tds[3].textContent = row.event_start ?? "-";
-            tds[4].textContent = row.event_end ?? "-";
-            tds[5].textContent = row.fight_prob ?? "-";
-            tds[6].innerHTML = cells[6];
-            tds[7].textContent = row.pose_score_max ?? "-";
-            tds[8].textContent = row.pose_score_mean ?? "-";
-          }
-        });
+    const modal = document.createElement("div");
+    modal.id = "dashboard-notice-modal";
+    modal.className = `dashboard-notice-modal dashboard-notice-modal--${kind}`;
+
+    modal.innerHTML = `
+      <div class="dashboard-notice-modal__backdrop" data-dashboard-notice-close></div>
+
+      <div class="dashboard-notice-modal__box" role="dialog" aria-modal="true">
+        <div class="dashboard-notice-modal__logo">
+          <img src="/static/images/togu-logo.png" alt="TOGÜ Logo" />
+        </div>
+
+        <div class="dashboard-notice-modal__icon"></div>
+
+        <h2>${escapeHtml(title)}</h2>
+        <p>${escapeHtml(message)}</p>
+
+        <button
+          type="button"
+          class="dashboard-notice-modal__close"
+          data-dashboard-notice-close
+        >
+          Tamam
+        </button>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+    document.body.classList.add("dashboard-notice-modal-open");
+
+    function closeModal() {
+      modal.classList.add("is-closing");
+
+      setTimeout(function () {
+        modal.remove();
+        document.body.classList.remove("dashboard-notice-modal-open");
+      }, 220);
+    }
+
+    modal.querySelectorAll("[data-dashboard-notice-close]").forEach(function (el) {
+      el.addEventListener("click", closeModal);
+    });
+
+    document.addEventListener("keydown", function escHandler(event) {
+      if (event.key === "Escape") {
+        closeModal();
+        document.removeEventListener("keydown", escHandler);
       }
+    });
+  }
 
-      function syncIncidents(rows) {
-        if (!incidentsTable) return;
+  function handleDashboardNotice(notice) {
+    if (!notice || !notice.id) return;
 
-        (rows || []).forEach(row => {
-          const key = incidentKey(row);
-          const clipUrl = buildIncidentUrl(row.run_name, row.clip_path);
-          const clipHtml = clipUrl
-            ? `<video width="260" controls preload="metadata"><source src="${clipUrl}" type="video/mp4" /></video>`
-            : "Clip yok";
+    if (notice.id === lastDashboardNoticeId) return;
 
-          const cells = [
-            runBadge(row.run_name),
-            escapeHtml(row.camera_id),
-            escapeHtml(row.incident_id),
-            escapeHtml(row.start_ts),
-            escapeHtml(row.end_ts),
-            escapeHtml(row.part_count),
-            escapeHtml(row.max_prob),
-            escapeHtml(row.mean_prob),
-            statusBadge(row.final_label),
-            clipHtml
-          ];
+    lastDashboardNoticeId = notice.id;
+    sessionStorage.setItem("lastDashboardNoticeId", notice.id);
 
-          if (!incidentRowMap.has(key)) {
-            const rowApi = incidentsTable.row.add(cells);
-            incidentsTable.draw(false);
-            const node = rowApi.node();
-            if (node) node.setAttribute("data-row-key", key);
-            rebuildMaps();
-            return;
-          }
+    showDashboardNoticeModal(notice);
+  }
 
-          const rowApi = incidentRowMap.get(key);
-          const node = rowApi.node();
-          if (!node) return;
+  function applyDashboardData(data) {
+    handleDashboardNotice(data.notice);
 
-          const playingVideo = node.querySelector("video");
-          const isPlaying = playingVideo && !playingVideo.paused && !playingVideo.ended;
+    updateLiveStatusBadge(data.running);
 
-          const tds = node.querySelectorAll("td");
-          if (tds.length >= 10) {
-            tds[0].innerHTML = cells[0];
-            tds[1].textContent = row.camera_id ?? "-";
-            tds[2].textContent = row.incident_id ?? "-";
-            tds[3].textContent = row.start_ts ?? "-";
-            tds[4].textContent = row.end_ts ?? "-";
-            tds[5].textContent = row.part_count ?? "-";
-            tds[6].textContent = row.max_prob ?? "-";
-            tds[7].textContent = row.mean_prob ?? "-";
-            tds[8].innerHTML = cells[8];
-            if (!isPlaying) tds[9].innerHTML = clipHtml;
-          }
-        });
-      }
+    updatePipelineSummary({
+      running: data.running,
+      camera_count: data.camera_count
+    });
 
-      function updateCameraCards(cameraRows) {
-        const map = {};
-        (cameraRows || []).forEach(item => {
-          if (item.camera_id) map[item.camera_id] = item;
-        });
+    syncIncidents(data.incidents || []);
+  }
 
-        document.querySelectorAll(".camera-card[data-camera-id]").forEach(card => {
-          const cameraId = card.getAttribute("data-camera-id");
-          const row = map[cameraId] || {};
+  function initCameraModal() {
+    const modal = document.getElementById("camera-modal");
+    const modalImg = document.getElementById("camera-modal-img");
+    const modalTitle = document.getElementById("camera-modal-title");
+    const modalSubtitle = document.getElementById("camera-modal-subtitle");
 
-          function setText(selector, value) {
-            const el = card.querySelector(selector);
-            if (el) el.textContent = value ?? "-";
-          }
+    if (!modal || !modalImg || !modalTitle || !modalSubtitle) return;
 
-          setText(".js-stage", row.stage ?? "-");
-          setText(".js-detail", row.detail ?? "-");
-          setText(".js-last-ts", row.last_ts ?? "-");
-          setText(".js-persons", row.persons ?? 0);
-          setText(".js-pair-ok", row.pair_ok ?? 0);
-          setText(".js-pose-score", row.pose_score ?? 0);
-          setText(".js-stage3-label", row.latest_stage3_label ?? "-");
-          setText(".js-stage3-prob", row.latest_stage3_prob ?? 0);
-          setText(".js-incident-label", row.latest_incident_label ?? "-");
-          setText(".js-incident-parts", row.latest_incident_part_count ?? "-");
-          setText(".js-queue-status", row.queue_status ?? "-");
-          setText(".js-queue-reason", row.queue_reason ?? "-");
-        });
-      }
+    function openModal(button) {
+      const card = button.closest(".camera-card");
+      const img = button.querySelector("img");
 
-      function applyDashboardData(data) {
-        updatePipelineSummary({
-          running: data.running,
-          pid: data.pid,
-          run_name: data.run_name,
-          camera_count: data.camera_count
-        });
+      if (!card || !img) return;
 
-        syncStage3(data.stage3 || []);
-        syncIncidents(data.incidents || []);
-        updateCameraCards(data.cameras || []);
-      }
+      const cameraName = button.dataset.cameraName || card.dataset.cameraName || "Kamera";
+      const cameraId = button.dataset.cameraId || card.dataset.cameraId || "-";
 
-      function connectSSE() {
-        const source = new EventSource("{% url 'dashboard:events_stream' %}");
+      modalTitle.textContent = cameraName;
+      modalSubtitle.textContent = `Kamera ID: ${cameraId}`;
+      modalImg.src = img.src;
 
-        source.addEventListener("dashboard", function (event) {
-          try {
-            const data = JSON.parse(event.data);
-            if (!data.ok) return;
-            applyDashboardData(data);
-          } catch (err) {
-            console.error("SSE parse hatası:", err);
-          }
-        });
+      modal.classList.add("is-open");
+      modal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("camera-modal-open");
+    }
 
-        source.addEventListener("ping", function () {});
+    function closeModal() {
+      modal.classList.remove("is-open");
+      modal.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("camera-modal-open");
+      modalImg.src = "";
+    }
 
-        source.onerror = function (err) {
-          console.error("SSE bağlantı hatası:", err);
-          source.close();
-          startPollingFallback();
-        };
-      }
-
-      let pollingStarted = false;
-
-      function startPollingFallback() {
-        if (pollingStarted) return;
-        pollingStarted = true;
-
-        async function tick() {
-          try {
-            const response = await fetch("{% url 'dashboard:events' %}", {
-              method: "GET",
-              headers: { "X-Requested-With": "XMLHttpRequest" },
-              cache: "no-store"
-            });
-
-            if (!response.ok) return;
-            const data = await response.json();
-            if (!data.ok) return;
-            applyDashboardData(data);
-          } catch (err) {
-            console.error("Fallback polling hatası:", err);
-          }
-        }
-
-        tick();
-        setInterval(tick, 5000);
-      }
-
-      document.addEventListener("DOMContentLoaded", function () {
-        initTables();
-        connectSSE();
+    document.querySelectorAll(".camera-open-btn").forEach(button => {
+      button.addEventListener("click", function () {
+        openModal(button);
       });
-    </script>
-  </body>
-</html>
+    });
+
+    document.querySelectorAll("[data-camera-modal-close]").forEach(button => {
+      button.addEventListener("click", closeModal);
+    });
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && modal.classList.contains("is-open")) {
+        closeModal();
+      }
+    });
+  }
+
+  function connectSSE() {
+    const source = new EventSource("{% url 'dashboard:events_stream' %}");
+
+    source.addEventListener("dashboard", function (event) {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (!data.ok) return;
+
+        applyDashboardData(data);
+      } catch (err) {
+        console.error("SSE parse hatası:", err);
+      }
+    });
+
+    source.addEventListener("ping", function () {});
+
+    source.onerror = function (err) {
+      console.error("SSE bağlantı hatası:", err);
+      source.close();
+      startPollingFallback();
+    };
+  }
+
+  let pollingStarted = false;
+
+  function startPollingFallback() {
+    if (pollingStarted) return;
+
+    pollingStarted = true;
+
+    async function tick() {
+      try {
+        const response = await fetch("{% url 'dashboard:events' %}", {
+          method: "GET",
+          headers: {
+            "X-Requested-With": "XMLHttpRequest"
+          },
+          cache: "no-store"
+        });
+
+        if (!response.ok) return;
+
+        const data = await response.json();
+
+        if (!data.ok) return;
+
+        applyDashboardData(data);
+      } catch (err) {
+        console.error("Fallback polling hatası:", err);
+      }
+    }
+
+    tick();
+    setInterval(tick, 5000);
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    initTables();
+    initCameraModal();
+    connectSSE();
+  });
+</script>
+{% endblock %}

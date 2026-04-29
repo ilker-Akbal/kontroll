@@ -34,6 +34,7 @@ class UserProfile(models.Model):
     faculty = models.CharField(max_length=50, choices=FACULTY_CHOICES, blank=True, null=True)
     role = models.CharField(max_length=20, choices=ROLE_CHOICES, default="viewer")
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default="pending")
+    password_reset_version = models.PositiveIntegerField(default=0)
 
     def __str__(self):
         return f"{self.user.username} - {self.role}"

@@ -3,7 +3,7 @@
 {% block title %}Kullanıcılar{% endblock %}
 {% block page_title %}Kullanıcı Yönetimi{% endblock %}
 {% block page_desc %}
-Sisteme kayıtlı kullanıcıları görüntüleyin, onaylayın, reddedin veya silin.
+Sisteme kayıtlı kullanıcıları görüntüleyin, düzenleyin, onaylayın, reddedin veya silin.
 {% endblock %}
 
 {% block content %}
@@ -97,6 +97,10 @@ Sisteme kayıtlı kullanıcıları görüntüleyin, onaylayın, reddedin veya si
 
             <td>
               <div class="actions">
+                <a href="{% url 'adminx:user_update' item.pk %}" class="btn primary">
+                  Düzenle
+                </a>
+
                 {% if item.status == "pending" %}
                 <form method="post" action="{% url 'adminx:user_approve' item.pk %}">
                   {% csrf_token %}

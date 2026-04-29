@@ -1,20 +1,665 @@
 {% extends "adminx/base.html" %} {% block title %}Admin Dashboard{% endblock %}
 {% block page_title %}Admin Dashboard{% endblock %} {% block page_desc %}Sistem
-özeti ve hızlı işlemler{% endblock %} {% block content %}
-<div class="grid-3">
-  <div class="card stat">
-    <h3>Toplam Kamera</h3>
-    <div class="value">{{ camera_count }}</div>
+özeti, kullanıcı onayları, kamera durumu ve operasyon grafikleri{% endblock %}
+{% block extra_css %}
+<style>
+  .admin-dashboard-grid {
+    display: grid;
+    gap: 20px;
+  }
+
+  .admin-control-card {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 24px;
+    border-radius: 26px;
+    border: 1px solid var(--stroke);
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.98),
+      rgba(248, 251, 255, 0.94)
+    );
+    box-shadow: var(--shadow-md);
+  }
+
+  .admin-control-card__left {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 0;
+  }
+
+  .admin-control-card__icon {
+    width: 54px;
+    height: 54px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    border-radius: 18px;
+    background: linear-gradient(135deg, #1677ff, #0ea5e9);
+    color: #ffffff;
+    font-size: 22px;
+    box-shadow: 0 16px 32px rgba(22, 119, 255, 0.22);
+  }
+
+  .admin-control-card h3 {
+    margin: 0;
+    color: var(--text);
+    font-size: 22px;
+    font-weight: 850;
+    letter-spacing: -0.04em;
+  }
+
+  .admin-control-card p {
+    margin: 8px 0 0;
+    max-width: 760px;
+    color: var(--text-soft);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .admin-control-card__actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex: 0 0 auto;
+  }
+
+  .admin-control-btn {
+    min-height: 48px;
+    padding: 0 20px;
+    border: 0;
+    border-radius: 16px;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 850;
+    cursor: pointer;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .admin-control-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+
+  .admin-control-btn--start {
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+  }
+
+  .admin-control-btn--stop {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+  }
+
+  .admin-control-btn:hover:not(:disabled) {
+    filter: brightness(1.03);
+  }
+
+  .admin-control-message {
+    display: none;
+    margin-top: 14px;
+    padding: 12px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--stroke);
+    background: #ffffff;
+    color: var(--text-soft);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.5;
+  }
+
+  .admin-control-message.is-visible {
+    display: block;
+  }
+
+  .admin-control-message.is-success {
+    color: #166534;
+    background: var(--success-soft);
+    border-color: rgba(22, 163, 74, 0.16);
+  }
+
+  .admin-control-message.is-error {
+    color: #991b1b;
+    background: var(--danger-soft);
+    border-color: rgba(220, 38, 38, 0.16);
+  }
+
+  .admin-metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 18px;
+  }
+
+  .admin-metric-card {
+    position: relative;
+    overflow: hidden;
+    min-height: 150px;
+    padding: 22px;
+    border-radius: 24px;
+    border: 1px solid var(--stroke);
+    background: linear-gradient(180deg, #ffffff, #f8fbff);
+    box-shadow: var(--shadow-md);
+  }
+
+  .admin-metric-card::after {
+    content: "";
+    position: absolute;
+    right: -36px;
+    bottom: -36px;
+    width: 126px;
+    height: 126px;
+    border-radius: 999px;
+    background: radial-gradient(
+      circle,
+      rgba(22, 119, 255, 0.12),
+      transparent 68%
+    );
+  }
+
+  .admin-metric-card span {
+    display: block;
+    margin-bottom: 10px;
+    color: var(--text-faint);
+    font-size: 12px;
+    font-weight: 900;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .admin-metric-card strong {
+    display: block;
+    color: var(--text);
+    font-size: clamp(30px, 3vw, 42px);
+    font-weight: 900;
+    letter-spacing: -0.05em;
+    line-height: 1;
+  }
+
+  .admin-metric-card p {
+    margin: 12px 0 0;
+    color: var(--text-soft);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .admin-chart-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+  }
+
+  .admin-chart-card {
+    min-width: 0;
+    padding: 22px;
+    border-radius: 24px;
+    border: 1px solid var(--stroke);
+    background: linear-gradient(
+      180deg,
+      rgba(255, 255, 255, 0.96),
+      rgba(255, 255, 255, 0.92)
+    );
+    box-shadow: var(--shadow-md);
+  }
+
+  .admin-chart-card__head {
+    margin-bottom: 18px;
+  }
+
+  .admin-chart-card__head h3 {
+    margin: 0;
+    color: var(--text);
+    font-size: 20px;
+    font-weight: 850;
+    letter-spacing: -0.035em;
+  }
+
+  .admin-chart-card__head p {
+    margin: 8px 0 0;
+    color: var(--text-soft);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .admin-chart-box {
+    position: relative;
+    height: 320px;
+  }
+
+  .admin-chart-box--small {
+    height: 280px;
+  }
+
+  @media (max-width: 1180px) {
+    .admin-control-card {
+      align-items: stretch;
+      flex-direction: column;
+    }
+
+    .admin-control-card__actions {
+      width: 100%;
+    }
+
+    .admin-control-btn {
+      width: 100%;
+    }
+
+    .admin-metrics-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .admin-chart-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 680px) {
+    .admin-control-card__actions {
+      flex-direction: column;
+    }
+
+    .admin-metrics-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .admin-chart-box,
+    .admin-chart-box--small {
+      height: 260px;
+    }
+  }
+</style>
+{% endblock %} {% block content %}
+<div class="admin-dashboard-grid">
+  <section class="admin-control-card">
+    <div>
+      <div class="admin-control-card__left">
+        <div class="admin-control-card__icon">▶</div>
+
+        <div>
+          <h3>Kavga Tespit Kontrolü</h3>
+          <p>
+            Bu bölümden kavga tespit pipeline sürecini başlatabilir veya
+            durdurabilirsiniz. Sistem durumu yukarıdaki canlı durum kartında
+            otomatik güncellenir.
+          </p>
+        </div>
+      </div>
+
+      <div id="admin-control-message" class="admin-control-message"></div>
+    </div>
+
+    <div class="admin-control-card__actions">
+      <button
+        type="button"
+        class="admin-control-btn admin-control-btn--start"
+        id="admin-start-system-btn"
+      >
+        Sistemi Başlat
+      </button>
+
+      <button
+        type="button"
+        class="admin-control-btn admin-control-btn--stop"
+        id="admin-stop-system-btn"
+      >
+        Sistemi Durdur
+      </button>
+    </div>
+  </section>
+
+  <div class="admin-metrics-grid">
+    <div class="admin-metric-card">
+      <span>Toplam Kamera</span>
+      <strong>{{ camera_count|default:"0" }}</strong>
+      <p>Sistemde tanımlı toplam kamera sayısı.</p>
+    </div>
+
+    <div class="admin-metric-card">
+      <span>Aktif Kamera</span>
+      <strong>{{ active_camera_count|default:"0" }}</strong>
+      <p>Canlı izleme ve pipeline için uygun kameralar.</p>
+    </div>
+
+    <div class="admin-metric-card">
+      <span>Pasif Kamera</span>
+      <strong>{{ passive_camera_count|default:"0" }}</strong>
+      <p>Şu anda izlemeye kapalı kamera kayıtları.</p>
+    </div>
+
+    <div class="admin-metric-card">
+      <span>Onay Bekleyen</span>
+      <strong>{{ pending_user_count|default:"0" }}</strong>
+      <p>Admin onayı bekleyen kullanıcı hesapları.</p>
+    </div>
   </div>
 
-  <div class="card stat">
-    <h3>Aktif Kamera</h3>
-    <div class="value">{{ active_camera_count }}</div>
-  </div>
+  <div class="admin-chart-grid">
+    <section class="admin-chart-card">
+      <div class="admin-chart-card__head">
+        <h3>Kamera Durumu</h3>
+        <p>Aktif ve pasif kamera dağılımı.</p>
+      </div>
+      <div class="admin-chart-box admin-chart-box--small">
+        <canvas id="cameraStatusChart"></canvas>
+      </div>
+    </section>
 
-  <div class="card stat">
-    <h3>Pasif Kamera</h3>
-    <div class="value">{{ passive_camera_count }}</div>
+    <section class="admin-chart-card">
+      <div class="admin-chart-card__head">
+        <h3>Kullanıcı Onay Durumu</h3>
+        <p>Onaylanmış ve bekleyen kullanıcıların karşılaştırması.</p>
+      </div>
+      <div class="admin-chart-box admin-chart-box--small">
+        <canvas id="userApprovalChart"></canvas>
+      </div>
+    </section>
+
+    <section class="admin-chart-card">
+      <div class="admin-chart-card__head">
+        <h3>Kullanıcı Rolleri</h3>
+        <p>Admin, operator ve viewer rollerinin dağılımı.</p>
+      </div>
+      <div class="admin-chart-box admin-chart-box--small">
+        <canvas id="roleChart"></canvas>
+      </div>
+    </section>
+
+    <section class="admin-chart-card">
+      <div class="admin-chart-card__head">
+        <h3>Genel Sistem Özeti</h3>
+        <p>Kamera ve kullanıcı verilerinin genel görünümü.</p>
+      </div>
+      <div class="admin-chart-box">
+        <canvas id="overviewChart"></canvas>
+      </div>
+    </section>
   </div>
 </div>
+{% endblock %} {% block extra_scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<script>
+  function getCookie(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+
+    if (parts.length === 2) {
+      return parts.pop().split(";").shift();
+    }
+
+    return "";
+  }
+
+  function showAdminControlMessage(message, type) {
+    const el = document.getElementById("admin-control-message");
+
+    if (!el) return;
+
+    el.textContent = message;
+    el.className = "admin-control-message is-visible";
+
+    if (type === "success") {
+      el.classList.add("is-success");
+    }
+
+    if (type === "error") {
+      el.classList.add("is-error");
+    }
+  }
+
+  async function postPipelineCommand(url) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "X-CSRFToken": getCookie("csrftoken"),
+        "X-Requested-With": "XMLHttpRequest",
+      },
+      cache: "no-store",
+      credentials: "same-origin",
+    });
+
+    const text = await response.text();
+
+    let data = null;
+
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch (err) {
+      data = null;
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        `HTTP ${response.status} - ${data?.error || data?.message || text || "İstek başarısız"}`,
+      );
+    }
+
+    return data;
+  }
+
+  async function sendPipelineCommand(url, successMessage) {
+    const startBtn = document.getElementById("admin-start-system-btn");
+    const stopBtn = document.getElementById("admin-stop-system-btn");
+
+    try {
+      if (startBtn) startBtn.disabled = true;
+      if (stopBtn) stopBtn.disabled = true;
+
+      await postPipelineCommand(url);
+
+      showAdminControlMessage(successMessage, "success");
+
+      if (typeof updateAdminSystemStatus === "function") {
+        updateAdminSystemStatus();
+      }
+    } catch (error) {
+      showAdminControlMessage(
+        `İşlem gerçekleştirilemedi: ${error.message}`,
+        "error",
+      );
+
+      console.error("Pipeline kontrol hatası:", error);
+    } finally {
+      if (startBtn) startBtn.disabled = false;
+      if (stopBtn) stopBtn.disabled = false;
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    const startBtn = document.getElementById("admin-start-system-btn");
+    const stopBtn = document.getElementById("admin-stop-system-btn");
+
+    if (startBtn) {
+      startBtn.addEventListener("click", function () {
+        sendPipelineCommand(
+          "{% url 'dashboard:start_detection' %}",
+          "Kavga tespit sistemi başlatıldı.",
+        );
+      });
+    }
+
+    if (stopBtn) {
+      stopBtn.addEventListener("click", function () {
+        sendPipelineCommand(
+          "{% url 'dashboard:stop_detection' %}",
+          "Kavga tespit sistemi durduruldu.",
+        );
+      });
+    }
+  });
+
+  const chartTheme = {
+    grid: "rgba(148, 163, 184, 0.22)",
+    text: "#64748b",
+    primary: "#1677ff",
+    cyan: "#0ea5e9",
+    success: "#16a34a",
+    danger: "#dc2626",
+    warning: "#d97706",
+    slate: "#64748b",
+  };
+
+  const dashboardData = {
+    cameraCount: Number("{{ camera_count|default:'0' }}"),
+    activeCameraCount: Number("{{ active_camera_count|default:'0' }}"),
+    passiveCameraCount: Number("{{ passive_camera_count|default:'0' }}"),
+
+    totalUserCount: Number("{{ total_user_count|default:'0' }}"),
+    approvedUserCount: Number("{{ approved_user_count|default:'0' }}"),
+    pendingUserCount: Number("{{ pending_user_count|default:'0' }}"),
+
+    adminUserCount: Number("{{ admin_user_count|default:'0' }}"),
+    operatorUserCount: Number("{{ operator_user_count|default:'0' }}"),
+    viewerUserCount: Number("{{ viewer_user_count|default:'0' }}"),
+  };
+
+  function createDoughnutChart(canvasId, labels, values, colors) {
+    const el = document.getElementById(canvasId);
+
+    if (!el) return;
+
+    new Chart(el, {
+      type: "doughnut",
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            data: values,
+            backgroundColor: colors,
+            borderColor: "#ffffff",
+            borderWidth: 3,
+            hoverOffset: 8,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: "64%",
+        plugins: {
+          legend: {
+            position: "bottom",
+            labels: {
+              color: chartTheme.text,
+              usePointStyle: true,
+              pointStyle: "circle",
+              padding: 18,
+              font: {
+                size: 12,
+                weight: "700",
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  function createBarChart(canvasId, labels, values, colors) {
+    const el = document.getElementById(canvasId);
+
+    if (!el) return;
+
+    new Chart(el, {
+      type: "bar",
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            data: values,
+            backgroundColor: colors,
+            borderRadius: 14,
+            borderSkipped: false,
+            maxBarThickness: 54,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            display: false,
+          },
+        },
+        scales: {
+          x: {
+            grid: {
+              display: false,
+            },
+            ticks: {
+              color: chartTheme.text,
+              font: {
+                size: 12,
+                weight: "700",
+              },
+            },
+          },
+          y: {
+            beginAtZero: true,
+            grid: {
+              color: chartTheme.grid,
+            },
+            ticks: {
+              color: chartTheme.text,
+              precision: 0,
+            },
+          },
+        },
+      },
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    createDoughnutChart(
+      "cameraStatusChart",
+      ["Aktif Kamera", "Pasif Kamera"],
+      [dashboardData.activeCameraCount, dashboardData.passiveCameraCount],
+      [chartTheme.success, chartTheme.danger],
+    );
+
+    createBarChart(
+      "userApprovalChart",
+      ["Onaylı", "Bekleyen"],
+      [dashboardData.approvedUserCount, dashboardData.pendingUserCount],
+      [chartTheme.success, chartTheme.warning],
+    );
+
+    createDoughnutChart(
+      "roleChart",
+      ["Admin", "Operator", "Viewer"],
+      [
+        dashboardData.adminUserCount,
+        dashboardData.operatorUserCount,
+        dashboardData.viewerUserCount,
+      ],
+      [chartTheme.primary, chartTheme.cyan, chartTheme.slate],
+    );
+
+    createBarChart(
+      "overviewChart",
+      [
+        "Toplam Kamera",
+        "Aktif Kamera",
+        "Pasif Kamera",
+        "Toplam Kullanıcı",
+        "Onay Bekleyen",
+      ],
+      [
+        dashboardData.cameraCount,
+        dashboardData.activeCameraCount,
+        dashboardData.passiveCameraCount,
+        dashboardData.totalUserCount,
+        dashboardData.pendingUserCount,
+      ],
+      [
+        chartTheme.primary,
+        chartTheme.success,
+        chartTheme.danger,
+        chartTheme.cyan,
+        chartTheme.warning,
+      ],
+    );
+  });
+</script>
 {% endblock %}

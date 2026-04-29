@@ -15,7 +15,7 @@
           <div class="card__brand">
             <img
               class="card__logo"
-              src="{% static 'img/togu-logo.png' %}"
+              src="{% static 'images/togu-logo.png' %}"
               alt="TOGÜ Logo"
             />
             <div>
@@ -72,6 +72,12 @@
 
           <button class="btn" id="loginBtn" type="submit">Giriş Yap</button>
         </form>
+
+        <div class="auth-forgot">
+          <a href="{% url 'accounts:password_reset_request' %}">
+            Şifremi unuttum
+          </a>
+        </div>
 
         <div class="actions-bottom register-action-row">
           <a
