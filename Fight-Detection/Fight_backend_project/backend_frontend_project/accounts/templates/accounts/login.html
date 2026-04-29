@@ -73,31 +73,28 @@
           <button class="btn" id="loginBtn" type="submit">Giriş Yap</button>
         </form>
 
-        <div class="auth-forgot">
-          <a href="{% url 'accounts:password_reset_request' %}">
-            Şifremi unuttum
+        <div class="auth-link-panel">
+          <a
+            href="{% url 'accounts:password_reset_request' %}"
+            class="auth-link-card"
+          >
+            <span class="auth-link-card__title">Şifremi Unuttum</span>
+            <span class="auth-link-card__text"
+              >Şifre yenileme bağlantısı al</span
+            >
+          </a>
+
+          <a href="{% url 'accounts:register' %}" class="auth-link-card">
+            <span class="auth-link-card__title">Kayıt Ol</span>
+            <span class="auth-link-card__text"
+              >Yeni hesap başvurusu oluştur</span
+            >
           </a>
         </div>
 
-        <div class="actions-bottom register-action-row">
-          <a
-            href="{% url 'accounts:register' %}"
-            class="pill-link register-panel-btn"
-          >
-            Kayıt Ol
-          </a>
-        </div>
-
-        <div class="actions-bottom" style="margin-top: 12px">
-          <a
-            href="{% url 'accounts:admin_login' %}"
-            class="pill-link alt auth-secondary-btn"
-          >
-            Admin Panel Girişi
-          </a>
-        </div>
-        <section class="devs" aria-label="Geliştiriciler">
+        <section class="devs devs--compact" aria-label="Geliştiriciler">
           <div class="devs__title">Geliştiriciler</div>
+
           <div class="devs__grid">
             <a
               class="devs__item"
@@ -105,9 +102,11 @@
               target="_blank"
               rel="noopener"
             >
-              <span class="devs__dot"></span>
-              <span class="devs__name">Hüseyin Doğan</span>
-              <span class="devs__meta">LinkedIn ↗</span>
+              <span class="devs__avatar">H</span>
+              <span class="devs__content">
+                <span class="devs__name">Hüseyin Doğan</span>
+                <span class="devs__meta">LinkedIn ↗</span>
+              </span>
             </a>
 
             <a
@@ -116,9 +115,11 @@
               target="_blank"
               rel="noopener"
             >
-              <span class="devs__dot"></span>
-              <span class="devs__name">İlker Akbal</span>
-              <span class="devs__meta">LinkedIn ↗</span>
+              <span class="devs__avatar">İ</span>
+              <span class="devs__content">
+                <span class="devs__name">İlker Akbal</span>
+                <span class="devs__meta">LinkedIn ↗</span>
+              </span>
             </a>
           </div>
         </section>

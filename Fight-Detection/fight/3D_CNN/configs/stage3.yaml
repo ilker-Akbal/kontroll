@@ -6,24 +6,22 @@ model:
   amp: true
   amp_dtype: bf16
 
+  # İlk canlı devreye alma için false.
+  # Eğer checkpoint ile mimari birebir uyuyorsa sonra true yapılabilir.
+  strict: false
+
 input:
-  # Eğitimde 64 frame context okunup modele 16 frame verildi.
   context_frames: 64
   clip_len: 16
   size: 224
   fps_sample: 16
   pad_value: 114
-
-  # X3D-M eğitim kodundaki normalize değerleri
   mean: [0.45, 0.45, 0.45]
   std: [0.225, 0.225, 0.225]
 
 inference:
   batch: 4
   agg: mean
-
-  # Bunlar batch/offline inference için kalabilir.
-  # Canlıda asıl eşik run_multi_live_queue.py --fight-thr veya Django PIPELINE_DEFAULTS içinden gelir.
   thr_confident: 0.6
   thr_borderline: 0.45
   evidence_max_clip: 0.7

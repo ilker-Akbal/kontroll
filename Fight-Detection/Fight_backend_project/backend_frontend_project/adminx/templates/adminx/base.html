@@ -208,11 +208,11 @@ img{
 
 .sidebar-card {
   position: sticky;
-  bottom: 18px;
+  bottom: 1px;
   margin-top: auto;
   flex-shrink: 0;
 
-  padding: 18px;
+  padding: 10px;
   border-radius: 22px;
   background: linear-gradient(135deg, #1677ff, #0ea5e9);
   color: #fff;
@@ -1071,25 +1071,28 @@ table tbody tr:hover td{
               href="{% url 'adminx:camera_list' %}"
               class="{% if request.resolver_match.url_name == 'camera_list' or request.resolver_match.url_name == 'camera_create' or request.resolver_match.url_name == 'camera_edit' or request.resolver_match.url_name == 'camera_delete' %}is-active{% endif %}"
             >
-              Cameras
+              Kameralar
             </a>
 
             <a
               href="{% url 'adminx:user_list' %}"
               class="{% if request.resolver_match.url_name == 'user_list' %}is-active{% endif %}"
             >
-              Users
+              Kullanıcılar
             </a>
 
             <a
               href="{% url 'adminx:camera_create' %}"
               class="{% if request.resolver_match.url_name == 'camera_create' %}is-active{% endif %}"
             >
-              Add Camera
+             Kamera Ekle
             </a>
+            <a href="{% url 'adminx:incident_list' %}" class="sidebar-link">
+  Kavga Kayıtları
+</a>
 
             <a href="{% url 'dashboard:index' %}">
-              Security Screen
+              Güvenlik Ekranı
             </a>
           </nav>
 
@@ -1110,12 +1113,10 @@ table tbody tr:hover td{
         <main class="main">
           <div class="topbar">
             <div class="topbar-left">
-              <div class="page-chip">Live Admin</div>
 
             </div>
 
             <div class="top-actions">
-              <div class="icon-btn">⚙️</div>
 
               <div class="user-badge">
                 <div class="user-badge__avatar">

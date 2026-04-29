@@ -4,6 +4,176 @@
 
 {% block extra_css %}
 <link rel="stylesheet" href="https://cdn.datatables.net/1.13.8/css/jquery.dataTables.min.css" />
+
+<style>
+  .fight-alert-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+  }
+
+  .fight-alert-modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.72);
+    backdrop-filter: blur(6px);
+  }
+
+  .fight-alert-modal__box {
+    position: relative;
+    width: min(520px, calc(100% - 32px));
+    margin: 90px auto 0;
+    padding: 28px;
+    border-radius: 28px;
+    background: #ffffff;
+    box-shadow: 0 28px 80px rgba(15, 23, 42, 0.35);
+    display: flex;
+    gap: 18px;
+    animation: fightAlertIn 0.22s ease-out;
+  }
+
+  .fight-alert-modal.is-closing .fight-alert-modal__box {
+    animation: fightAlertOut 0.18s ease-in forwards;
+  }
+
+  .fight-alert-modal__icon {
+    width: 58px;
+    height: 58px;
+    border-radius: 20px;
+    background: #fee2e2;
+    color: #dc2626;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 26px;
+    font-weight: 900;
+    flex-shrink: 0;
+  }
+
+  .fight-alert-modal__content {
+    flex: 1;
+  }
+
+  .fight-alert-modal__eyebrow {
+    display: inline-flex;
+    margin-bottom: 8px;
+    padding: 5px 10px;
+    border-radius: 999px;
+    background: #fff1f2;
+    color: #be123c;
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .fight-alert-modal__content h2 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 24px;
+    font-weight: 900;
+  }
+
+  .fight-alert-modal__content p {
+    margin: 10px 0 0;
+    color: #475569;
+    font-size: 14px;
+    line-height: 1.6;
+    font-weight: 700;
+  }
+
+  .fight-alert-modal__details {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin-top: 18px;
+    padding: 14px;
+    border-radius: 18px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+  }
+
+  .fight-alert-modal__details div {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+  }
+
+  .fight-alert-modal__details span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .fight-alert-modal__details strong {
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 900;
+    text-align: right;
+  }
+
+  .fight-alert-modal__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+  }
+
+  .fight-alert-modal__primary,
+  .fight-alert-modal__secondary {
+    min-height: 42px;
+    padding: 0 16px;
+    border-radius: 14px;
+    border: 0;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .fight-alert-modal__primary {
+    background: #dc2626;
+    color: #ffffff;
+  }
+
+  .fight-alert-modal__secondary {
+    background: #f1f5f9;
+    color: #334155;
+  }
+
+  @keyframes fightAlertIn {
+    from {
+      opacity: 0;
+      transform: translateY(14px) scale(0.98);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes fightAlertOut {
+    to {
+      opacity: 0;
+      transform: translateY(10px) scale(0.98);
+    }
+  }
+
+  @media (max-width: 560px) {
+    .fight-alert-modal__box {
+      flex-direction: column;
+      margin-top: 48px;
+    }
+
+    .fight-alert-modal__actions {
+      flex-direction: column;
+    }
+  }
+</style>
 {% endblock %}
 
 {% block navbar_status %}
@@ -153,27 +323,22 @@
             <td>
               <span class="status-badge status-other">{{ row.final_label }}</span>
             </td>
-<td class="incident-clip-cell">
-  {% if row.run_name and row.clip_path %}
-  <div class="incident-video-wrap">
-    <video class="incident-video" controls preload="metadata">
-      <source src="/dashboard/incident-video/{{ row.run_name }}/{{ row.clip_path }}" type="video/mp4" />
-    </video>
-  </div>
-  {% else %}
-  <span class="incident-empty">Clip yok</span>
-  {% endif %}
-</td>
+            <td class="incident-clip-cell">
+              {% if row.run_name and row.clip_path %}
+              <div class="incident-video-wrap">
+                <video class="incident-video" controls preload="metadata">
+                  <source src="/dashboard/incident-video/{{ row.run_name }}/{{ row.clip_path }}" type="video/mp4" />
+                </video>
+              </div>
+              {% else %}
+              <span class="incident-empty">Clip yok</span>
+              {% endif %}
+            </td>
           </tr>
           {% empty %}
           {% endfor %}
         </tbody>
       </table>
-    </div>
-
-    <div id="incident-video-modal" class="incident-video-modal" aria-hidden="true">
-      <div class="incident-video-modal__backdrop" data-incident-video-close></div>
-
     </div>
   </section>
 </div>
@@ -186,6 +351,10 @@
 <script>
   let incidentsTable = null;
   const incidentRowMap = new Map();
+
+  const shownFightAlerts = new Set(
+    JSON.parse(sessionStorage.getItem("shownFightAlerts") || "[]")
+  );
 
   const datatableLang = {
     decimal: "",
@@ -250,19 +419,119 @@
     return `${row.run_name || "-"}__${row.camera_id || "-"}__${row.incident_id || "-"}__${row.clip_path || "-"}`;
   }
 
-  function buildClipButtonHtml(clipUrl) {
-    if (!clipUrl) {
-      return `<span class="incident-empty">Clip yok</span>`;
+  function fightAlertKey(row) {
+    return `${row.run_name || "-"}__${row.camera_id || "-"}__${row.incident_id || "-"}__${row.clip_path || "-"}`;
+  }
+
+  function isFightIncident(row) {
+    const label = String(row.final_label || row.fight_label || "").toLowerCase();
+    return label.includes("fight") && !label.includes("non");
+  }
+
+  function saveShownFightAlerts() {
+    sessionStorage.setItem(
+      "shownFightAlerts",
+      JSON.stringify(Array.from(shownFightAlerts).slice(-80))
+    );
+  }
+
+  function checkFightAlerts(rows) {
+    (rows || []).forEach(function (row) {
+      if (!isFightIncident(row)) return;
+
+      const key = fightAlertKey(row);
+
+      if (shownFightAlerts.has(key)) return;
+
+      shownFightAlerts.add(key);
+      saveShownFightAlerts();
+
+      showFightAlert(row);
+    });
+  }
+
+  function showFightAlert(row) {
+    const oldModal = document.getElementById("fight-alert-modal");
+
+    if (oldModal) {
+      oldModal.remove();
     }
 
-    return `
-      <button type="button" class="incident-clip-btn" data-clip-url="${clipUrl}">
-        <span class="incident-clip-thumb">
-          <span class="incident-clip-play">▶</span>
-        </span>
-        <span class="incident-clip-text">Clip izle</span>
-      </button>
+    const clipUrl = buildIncidentUrl(row.run_name, row.clip_path);
+
+    const modal = document.createElement("div");
+    modal.id = "fight-alert-modal";
+    modal.className = "fight-alert-modal";
+
+    modal.innerHTML = `
+      <div class="fight-alert-modal__backdrop" data-fight-alert-close></div>
+
+      <div class="fight-alert-modal__box" role="dialog" aria-modal="true">
+        <div class="fight-alert-modal__icon">!</div>
+
+        <div class="fight-alert-modal__content">
+          <span class="fight-alert-modal__eyebrow">Acil Bildirim</span>
+          <h2>Kavga Tespit Edildi</h2>
+
+          <p>
+            <strong>${escapeHtml(row.camera_id || "Kamera")}</strong>
+            kamerasında kavga olayı tespit edildi.
+          </p>
+
+          <div class="fight-alert-modal__details">
+            <div>
+              <span>Başlangıç</span>
+              <strong>${escapeHtml(row.start_ts || "-")}</strong>
+            </div>
+
+            <div>
+              <span>Bitiş</span>
+              <strong>${escapeHtml(row.end_ts || "-")}</strong>
+            </div>
+
+            <div>
+              <span>Etiket</span>
+              <strong>${escapeHtml(row.final_label || "fight")}</strong>
+            </div>
+          </div>
+
+          <div class="fight-alert-modal__actions">
+            ${
+              clipUrl
+                ? `<a class="fight-alert-modal__primary" href="${clipUrl}" target="_blank" rel="noopener">Kaydı Aç</a>`
+                : ""
+            }
+
+            <button type="button" class="fight-alert-modal__secondary" data-fight-alert-close>
+              Tamam
+            </button>
+          </div>
+        </div>
+      </div>
     `;
+
+    document.body.appendChild(modal);
+    document.body.classList.add("fight-alert-modal-open");
+
+    function closeModal() {
+      modal.classList.add("is-closing");
+
+      setTimeout(function () {
+        modal.remove();
+        document.body.classList.remove("fight-alert-modal-open");
+      }, 180);
+    }
+
+    modal.querySelectorAll("[data-fight-alert-close]").forEach(function (el) {
+      el.addEventListener("click", closeModal);
+    });
+
+    document.addEventListener("keydown", function escHandler(event) {
+      if (event.key === "Escape") {
+        closeModal();
+        document.removeEventListener("keydown", escHandler);
+      }
+    });
   }
 
   function initTables() {
@@ -346,15 +615,16 @@
     (rows || []).forEach(row => {
       const key = incidentKey(row);
       const clipUrl = buildIncidentUrl(row.run_name, row.clip_path);
+
       const clipHtml = clipUrl
-  ? `
-    <div class="incident-video-wrap">
-      <video class="incident-video" controls preload="metadata">
-        <source src="${clipUrl}" type="video/mp4" />
-      </video>
-    </div>
-  `
-  : `<span class="incident-empty">Clip yok</span>`;
+        ? `
+          <div class="incident-video-wrap">
+            <video class="incident-video" controls preload="metadata">
+              <source src="${clipUrl}" type="video/mp4" />
+            </video>
+          </div>
+        `
+        : `<span class="incident-empty">Clip yok</span>`;
 
       const cells = [
         escapeHtml(row.camera_id),
@@ -393,55 +663,6 @@
         tds[3].textContent = row.end_ts ?? "-";
         tds[4].innerHTML = cells[4];
         tds[5].innerHTML = clipHtml;
-      }
-    });
-  }
-
-  function initIncidentVideoModal() {
-    const modal = document.getElementById("incident-video-modal");
-    const player = document.getElementById("incident-video-player");
-    const source = document.getElementById("incident-video-source");
-
-    if (!modal || !player || !source) return;
-
-    function openModal(url) {
-      source.src = url;
-      player.load();
-
-      modal.classList.add("is-open");
-      modal.setAttribute("aria-hidden", "false");
-      document.body.classList.add("incident-video-modal-open");
-    }
-
-    function closeModal() {
-      player.pause();
-      source.src = "";
-      player.load();
-
-      modal.classList.remove("is-open");
-      modal.setAttribute("aria-hidden", "true");
-      document.body.classList.remove("incident-video-modal-open");
-    }
-
-    document.addEventListener("click", function (event) {
-      const button = event.target.closest(".incident-clip-btn");
-
-      if (!button) return;
-
-      const url = button.dataset.clipUrl;
-
-      if (!url) return;
-
-      openModal(url);
-    });
-
-    document.querySelectorAll("[data-incident-video-close]").forEach(function (el) {
-      el.addEventListener("click", closeModal);
-    });
-
-    document.addEventListener("keydown", function (event) {
-      if (event.key === "Escape" && modal.classList.contains("is-open")) {
-        closeModal();
       }
     });
   }
@@ -534,6 +755,7 @@
     });
 
     syncIncidents(data.incidents || []);
+    checkFightAlerts(data.incidents || []);
   }
 
   function initCameraModal() {

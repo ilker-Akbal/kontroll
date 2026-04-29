@@ -1,4 +1,7 @@
 from django import forms
+from django.contrib.auth.models import User
+
+from accounts.models import UserProfile
 from streams.models import Camera
 
 
@@ -10,11 +13,30 @@ class CameraForm(forms.ModelForm):
             "camera_id",
             "source",
             "description",
+            "faculty",
             "is_active",
         ]
-from django import forms
-from django.contrib.auth.models import User
-from accounts.models import UserProfile
+
+        labels = {
+            "name": "Kamera Adı",
+            "camera_id": "Camera ID",
+            "source": "Kaynak",
+            "faculty": "Fakülte",
+            "is_active": "Aktif mi?",
+        }
+
+        widgets = {
+            "name": forms.TextInput(attrs={
+                "placeholder": "Örnek: Giriş Kapısı Kamera 1",
+            }),
+            "camera_id": forms.TextInput(attrs={
+                "placeholder": "Örnek: cam_01, giris_kapi, fight_test",
+            }),
+            "source": forms.TextInput(attrs={
+                "placeholder": "Örnek: 0, rtsp://..., http://..., C:/.../fight.mp4",
+            }),
+            "faculty": forms.Select(),
+        }
 
 
 class UserEditForm(forms.ModelForm):

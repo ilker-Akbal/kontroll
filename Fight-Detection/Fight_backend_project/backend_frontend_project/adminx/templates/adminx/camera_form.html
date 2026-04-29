@@ -1,6 +1,95 @@
 {% extends "adminx/base.html" %} {% block title %}{{ page_title }}{% endblock %}
 {% block page_title %}{{ page_title }}{% endblock %} {% block page_desc %}Kamera
 bilgilerini doldur{% endblock %} {% block content %}
+<style>
+  .camera-active-box {
+    padding: 16px 18px;
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    background: #f8fafc;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+  }
+
+  .camera-active-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .camera-active-info strong {
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 900;
+  }
+
+  .camera-active-info span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+
+  .camera-switch {
+    position: relative;
+    width: 58px;
+    height: 32px;
+    flex-shrink: 0;
+  }
+
+  .camera-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .camera-switch-slider {
+    position: absolute;
+    inset: 0;
+    cursor: pointer;
+    border-radius: 999px;
+    background: #cbd5e1;
+    transition: 0.2s ease;
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+  }
+
+  .camera-switch-slider::before {
+    content: "";
+    position: absolute;
+    width: 24px;
+    height: 24px;
+    left: 4px;
+    top: 4px;
+    border-radius: 50%;
+    background: #ffffff;
+    transition: 0.2s ease;
+    box-shadow: 0 5px 12px rgba(15, 23, 42, 0.18);
+  }
+
+  .camera-switch input:checked + .camera-switch-slider {
+    background: linear-gradient(135deg, #16a34a, #22c55e);
+  }
+
+  .camera-switch input:checked + .camera-switch-slider::before {
+    transform: translateX(26px);
+  }
+
+  .camera-switch input:focus + .camera-switch-slider {
+    box-shadow:
+      inset 0 0 0 1px rgba(15, 23, 42, 0.08),
+      0 0 0 4px rgba(34, 197, 94, 0.16);
+  }
+
+  .camera-active-errors {
+    margin-top: 8px;
+    color: #dc2626;
+    font-size: 12px;
+    font-weight: 700;
+  }
+</style>
+
 <div class="card">
   <form method="post" class="form-grid">
     {% csrf_token %}
@@ -33,13 +122,31 @@ bilgilerini doldur{% endblock %} {% block content %}
     </div>
 
     <div class="field">
-      <label for="{{ form.description.id_for_label }}">Açıklama</label>
-      {{ form.description }} {{ form.description.errors }}
+      <label for="{{ form.faculty.id_for_label }}">Fakülte</label>
+      {{ form.faculty }}
+      <small class="muted">
+        Bu kamera yalnızca seçilen fakülteye bağlı güvenlik kullanıcılarına
+        görünür.
+      </small>
+      {{ form.faculty.errors }}
     </div>
 
     <div class="field">
-      <label for="{{ form.is_active.id_for_label }}">Aktif mi?</label>
-      {{ form.is_active }} {{ form.is_active.errors }}
+      <div class="camera-active-box">
+        <div class="camera-active-info">
+          <strong>Kamera Durumu</strong>
+          <span>Aktif olduğunda kamera izleme ekranlarında görüntülenir.</span>
+        </div>
+
+        <label class="camera-switch" for="{{ form.is_active.id_for_label }}">
+          {{ form.is_active }}
+          <span class="camera-switch-slider"></span>
+        </label>
+      </div>
+
+      {% if form.is_active.errors %}
+      <div class="camera-active-errors">{{ form.is_active.errors }}</div>
+      {% endif %}
     </div>
 
     <div class="actions">

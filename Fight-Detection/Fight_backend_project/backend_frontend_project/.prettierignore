@@ -12,3 +12,4 @@ accounts/templates/accounts/password_reset_request.html
 accounts/templates/accounts/password_reset_confirm.html
 adminx/templates/adminx/user_form.html
 accounts/templates/accounts/password_reset_invalid.html
+adminx/templates/adminx/incident_list.html

@@ -1,0 +1,680 @@
+{% extends "adminx/base.html" %} {% block title %}Kavga Kayıtları{% endblock %}
+{% block page_title %}Kavga Kayıtları{% endblock %} {% block page_desc %}
+Sistemde tespit edilen kavga olaylarını, kamera-fakülte eşleşmelerini ve ilgili
+clip kayıtlarını görüntüleyin. {% endblock %} {% block content %}
+<style>
+  .incident-admin-page {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  .incident-admin-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+  }
+
+  .incident-admin-stat {
+    padding: 22px;
+    border-radius: 22px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 16px 36px rgba(15, 23, 42, 0.06);
+  }
+
+  .incident-admin-stat span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .incident-admin-stat strong {
+    display: block;
+    margin-top: 10px;
+    color: #0f172a;
+    font-size: 30px;
+    font-weight: 950;
+  }
+
+  .incident-admin-filter {
+    padding: 20px;
+    border-radius: 24px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 16px 36px rgba(15, 23, 42, 0.06);
+  }
+
+  .incident-filter-form {
+    display: grid;
+    grid-template-columns: 1.1fr 1.1fr 1.4fr auto auto;
+    gap: 14px;
+    align-items: end;
+  }
+
+  .incident-filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .incident-filter-field label {
+    color: #475569;
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .incident-filter-field select,
+  .incident-filter-field input {
+    width: 100%;
+    min-height: 42px;
+    border-radius: 13px;
+    border: 1px solid #dbe3ee;
+    background: #f8fafc;
+    color: #0f172a;
+    padding: 0 12px;
+    font-size: 13px;
+    font-weight: 750;
+    outline: none;
+  }
+
+  .incident-filter-field select:focus,
+  .incident-filter-field input:focus {
+    border-color: #2563eb;
+    box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.12);
+    background: #ffffff;
+  }
+
+  .incident-filter-btn,
+  .incident-filter-reset {
+    min-height: 42px;
+    border-radius: 13px;
+    padding: 0 16px;
+    border: 0;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 900;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .incident-filter-btn {
+    background: #1d4ed8;
+    color: #ffffff;
+  }
+
+  .incident-filter-reset {
+    background: #f1f5f9;
+    color: #334155;
+    border: 1px solid #dbe3ee;
+  }
+
+  .incident-admin-panel {
+    padding: 0;
+    overflow: hidden;
+    border-radius: 24px;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 18px 44px rgba(15, 23, 42, 0.07);
+  }
+
+  .incident-admin-head {
+    padding: 22px 24px;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .incident-admin-head h2 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 20px;
+    font-weight: 950;
+  }
+
+  .incident-admin-head p {
+    margin: 5px 0 0;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  .incident-admin-count {
+    min-height: 36px;
+    padding: 0 13px;
+    border-radius: 999px;
+    background: #eff6ff;
+    color: #1d4ed8;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 900;
+    white-space: nowrap;
+  }
+
+  .incident-admin-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .incident-admin-table {
+    width: 100%;
+    min-width: 1120px;
+    border-collapse: collapse;
+  }
+
+  .incident-admin-table th {
+    padding: 15px 16px;
+    background: #f8fafc;
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 950;
+    text-align: left;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid #e2e8f0;
+    white-space: nowrap;
+  }
+
+  .incident-admin-table td {
+    padding: 16px;
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 750;
+    vertical-align: middle;
+    border-bottom: 1px solid #edf2f7;
+  }
+
+  .incident-admin-table tbody tr:hover {
+    background: #f8fafc;
+  }
+
+  .incident-main {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .incident-main strong {
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 950;
+  }
+
+  .incident-main span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 750;
+  }
+
+  .incident-camera {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .incident-camera strong {
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 950;
+  }
+
+  .incident-camera span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 750;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .incident-faculty {
+    display: inline-flex;
+    align-items: center;
+    max-width: 240px;
+    padding: 7px 11px;
+    border-radius: 999px;
+    background: #eef2ff;
+    color: #3730a3;
+    font-size: 11px;
+    font-weight: 950;
+    line-height: 1.3;
+  }
+
+  .incident-users {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-width: 260px;
+  }
+
+  .incident-user-chip {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 9px 10px;
+    border-radius: 14px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+  }
+
+  .incident-user-chip strong {
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 950;
+  }
+
+  .incident-user-chip span {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 750;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .incident-user-empty {
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .incident-time {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .incident-time div {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  .incident-time span {
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 900;
+  }
+
+  .incident-time strong {
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 950;
+  }
+
+  .incident-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 7px 12px;
+    border-radius: 999px;
+    background: #fee2e2;
+    color: #b91c1c;
+    font-size: 11px;
+    font-weight: 950;
+    text-transform: uppercase;
+  }
+
+  .incident-label--other {
+    background: #f1f5f9;
+    color: #334155;
+  }
+
+  .incident-clip-link {
+    min-width: 96px;
+    min-height: 38px;
+    padding: 0 14px;
+    border-radius: 12px;
+    background: #1d4ed8;
+    color: #ffffff;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 900;
+    white-space: nowrap;
+    box-shadow: 0 10px 22px rgba(29, 78, 216, 0.18);
+  }
+
+  .incident-clip-link:hover {
+    background: #1e40af;
+  }
+
+  .incident-clip-empty {
+    color: #94a3b8;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .incident-empty-row {
+    padding: 34px !important;
+    text-align: center;
+    color: #64748b;
+    font-size: 14px;
+    font-weight: 850;
+  }
+
+  .incident-pagination {
+    padding: 18px 24px;
+    border-top: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+
+  .incident-pagination-info {
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .incident-pagination-links {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .incident-page-link,
+  .incident-page-current {
+    min-width: 36px;
+    height: 36px;
+    padding: 0 11px;
+    border-radius: 11px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .incident-page-link {
+    background: #f8fafc;
+    color: #334155;
+    border: 1px solid #dbe3ee;
+  }
+
+  .incident-page-link:hover {
+    background: #e2e8f0;
+  }
+
+  .incident-page-current {
+    background: #1d4ed8;
+    color: #ffffff;
+  }
+
+  @media (max-width: 1100px) {
+    .incident-admin-stats {
+      grid-template-columns: 1fr;
+    }
+
+    .incident-filter-form {
+      grid-template-columns: 1fr;
+    }
+
+    .incident-admin-head {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+</style>
+
+<div class="incident-admin-page">
+  <section class="incident-admin-stats">
+    <div class="incident-admin-stat">
+      <span>Filtrelenen Olay</span>
+      <strong>{{ incident_count }}</strong>
+    </div>
+
+    <div class="incident-admin-stat">
+      <span>Kavga Etiketi</span>
+      <strong>{{ fight_count }}</strong>
+    </div>
+
+    <div class="incident-admin-stat">
+      <span>İlgili Fakülte</span>
+      <strong>{{ faculty_count }}</strong>
+    </div>
+  </section>
+
+  <section class="incident-admin-filter">
+    <form method="get" class="incident-filter-form">
+      <div class="incident-filter-field">
+        <label for="faculty">Fakülteye Göre Filtrele</label>
+        <select name="faculty" id="faculty">
+          <option value="">Tüm Fakülteler</option>
+          {% for value, label in faculty_options %}
+          <option
+            value="{{ value }}"
+            {%
+            if
+            selected_faculty=""
+            ="value"
+            %}selected{%
+            endif
+            %}
+          >
+            {{ label }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="incident-filter-field">
+        <label for="camera">Kameraya Göre Filtrele</label>
+        <select name="camera" id="camera">
+          <option value="">Tüm Kameralar</option>
+          {% for camera in camera_options %}
+          <option
+            value="{{ camera.camera_id }}"
+            {%
+            if
+            selected_camera=""
+            ="camera.camera_id"
+            %}selected{%
+            endif
+            %}
+          >
+            {{ camera.name }} - {{ camera.camera_id }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="incident-filter-field">
+        <label for="q">Arama</label>
+        <input
+          type="text"
+          name="q"
+          id="q"
+          value="{{ search_query }}"
+          placeholder="Olay ID, kamera, fakülte veya etiket ara"
+        />
+      </div>
+
+      <button type="submit" class="incident-filter-btn">Filtrele</button>
+
+      <a href="{% url 'adminx:incident_list' %}" class="incident-filter-reset">
+        Temizle
+      </a>
+    </form>
+  </section>
+
+  <section class="incident-admin-panel">
+    <div class="incident-admin-head">
+      <div>
+        <h2>Kavga Olay Listesi</h2>
+        <p>
+          Olayların hangi kameradan, hangi fakülteden ve hangi kullanıcı
+          grubuyla ilişkili olduğunu görüntüleyin.
+        </p>
+      </div>
+
+      <span class="incident-admin-count"> Sayfada 6 kayıt gösteriliyor </span>
+    </div>
+
+    <div class="incident-admin-table-wrap">
+      <table class="incident-admin-table">
+        <thead>
+          <tr>
+            <th>Olay</th>
+            <th>Kamera</th>
+            <th>Fakülte</th>
+            <th>İlgili Kullanıcılar</th>
+            <th>Zaman</th>
+            <th>Etiket</th>
+            <th>Clip</th>
+          </tr>
+        </thead>
+
+        <tbody>
+          {% for item in incidents %}
+          <tr>
+            <td>
+              <div class="incident-main">
+                <strong>{{ item.incident_id }}</strong>
+                <span>{{ item.run_name }}</span>
+              </div>
+            </td>
+
+            <td>
+              <div class="incident-camera">
+                <strong>{{ item.camera_name }}</strong>
+                <span>ID: {{ item.camera_id }}</span>
+                <span title="{{ item.camera_source }}"
+                  >{{ item.camera_source }}</span
+                >
+              </div>
+            </td>
+
+            <td>
+              <span class="incident-faculty">{{ item.faculty_label }}</span>
+            </td>
+
+            <td>
+              <div class="incident-users">
+                {% for user in item.faculty_users %}
+                <div class="incident-user-chip">
+                  <strong>{{ user.username }}</strong>
+                  <span>{{ user.email|default:"-" }}</span>
+                  <span>{{ user.role }}</span>
+                </div>
+                {% empty %}
+                <span class="incident-user-empty"
+                  >Bu fakülteye bağlı onaylı kullanıcı yok.</span
+                >
+                {% endfor %}
+              </div>
+            </td>
+
+            <td>
+              <div class="incident-time">
+                <div>
+                  <span>Başlangıç</span>
+                  <strong>{{ item.start_ts }}</strong>
+                </div>
+
+                <div>
+                  <span>Bitiş</span>
+                  <strong>{{ item.end_ts }}</strong>
+                </div>
+              </div>
+            </td>
+
+            <td>
+              {% if item.final_label == "fight" %}
+              <span class="incident-label">{{ item.final_label }}</span>
+              {% else %}
+              <span class="incident-label incident-label--other"
+                >{{ item.final_label }}</span
+              >
+              {% endif %}
+            </td>
+
+            <td>
+              {% if item.clip_url %}
+              <a
+                href="{{ item.clip_url }}"
+                target="_blank"
+                rel="noopener"
+                class="incident-clip-link"
+              >
+                Clip İzle
+              </a>
+              {% else %}
+              <span class="incident-clip-empty">Clip yok</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="7" class="incident-empty-row">
+              Kriterlere uygun kavga kaydı bulunamadı.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+{% if page_obj.has_other_pages %}
+<div class="incident-pagination">
+  <div class="incident-pagination-info">
+    Toplam {{ incident_count }} kayıt — Sayfa {{ page_obj.number }} / {{ page_obj.paginator.num_pages }}
+  </div>
+
+  <div class="incident-pagination-links">
+    {% if page_obj.has_previous %}
+    <a
+      class="incident-page-link"
+      href="?page=1{% if query_string %}&{{ query_string }}{% endif %}"
+    >
+      İlk
+    </a>
+
+    <a
+      class="incident-page-link"
+      href="?page={{ page_obj.previous_page_number }}{% if query_string %}&{{ query_string }}{% endif %}"
+    >
+      Önceki
+    </a>
+    {% endif %}
+
+    <span class="incident-page-current">
+      {{ page_obj.number }}
+    </span>
+
+    {% if page_obj.has_next %}
+    <a
+      class="incident-page-link"
+      href="?page={{ page_obj.next_page_number }}{% if query_string %}&{{ query_string }}{% endif %}"
+    >
+      Sonraki
+    </a>
+
+    <a
+      class="incident-page-link"
+      href="?page={{ page_obj.paginator.num_pages }}{% if query_string %}&{{ query_string }}{% endif %}"
+    >
+      Son
+    </a>
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+  </section>
+</div>
+{% endblock %}

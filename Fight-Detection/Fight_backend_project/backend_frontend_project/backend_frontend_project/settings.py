@@ -141,7 +141,11 @@ PIPELINE_DEFAULTS = {
     "person_conf": "0.25",
     "yolo_stride": "2",
     "pose_stride": "2",
-    "fight_thr": "0.50",
+
+    # X3D-M için 0.62 fazla sıkı kaldı.
+    # 0.50 civarı normal videolarda false üretiyordu.
+    # Dengeli eşik: 0.52
+    "fight_thr": "0.52",
 
     "use_pose": True,
     "use_stage3": True,
@@ -150,13 +154,27 @@ PIPELINE_DEFAULTS = {
     "min_persons_for_pose": "2",
     "pose_hold_frames": "8",
     "event_close_grace_frames": "12",
-    "prebuffer_frames": "12",
-    "max_event_frames": "160",
+
+    # X3D-M canlı event ayarları
+    "prebuffer_frames": "24",
+    "max_event_frames": "128",
     "clip_fps": "16.0",
+    "min_queue_frames": "32",
+
+    # Stage3'e göndermeden önce event kalite filtresi.
+    # Bunlar çok sıkı olursa kavga kaçıyor, çok gevşek olursa normal video false alarm oluyor.
+    "stage3_event_min_positive_hits": "8",
+    "stage3_event_min_pose_mean": "0.20",
+    "stage3_event_min_pose_max": "0.45",
+    "stage3_event_min_duration_sec": "0.45",
+
+    # no_persons_for_pose'u artık drop etmiyoruz.
+    # Çünkü gerçek kavgada kısa süre YOLO/pose kopabiliyor.
+    "stage3_drop_close_reasons": "pair_roi_missing,roi_crop_failed",
+
     "reconnect_sec": "1.0",
     "status_log_every": "30",
 
-    "min_queue_frames": "32",
     "stage3_queue_size": "64",
 
     "preview_every_frames": "4",
@@ -166,20 +184,30 @@ PIPELINE_DEFAULTS = {
     "report_flush_interval_sec": "0.25",
     "cv2_threads": "1",
 
-    "incident_enter_thr": "0.62",
-    "incident_keep_thr": "0.60",
+    # Incident aggregation dengeli mod
+    # Aynı olayı birleştirir ama 0.50 civarı tekil skorlarla alarm üretmez.
+    "incident_enter_thr": "0.52",
+    "incident_keep_thr": "0.48",
     "incident_vote_window": "7",
     "incident_vote_enter_needed": "2",
     "incident_vote_keep_needed": "2",
-    "incident_merge_gap_sec": "10.0",
-    "incident_max_bridge_nonfight": "2",
+
+    # Aynı olay için parçaları birleştirsin.
+    "incident_merge_gap_sec": "60.0",
+    "incident_max_bridge_nonfight": "1",
+
+    # Tek zayıf clip ile alarm yok.
     "incident_min_segments": "2",
-    "incident_single_strong_fight_thr": "0.82",
+    "incident_single_strong_fight_thr": "0.68",
     "incident_confirm_min_duration_sec": "0.8",
-    "incident_cooldown_sec": "18.0",
+
+    # Aynı kavga için spam engeli.
+    "incident_cooldown_sec": "60.0",
     "incident_clip_ready_wait_sec": "8.0",
-    "incident_stale_finalize_sec": "4.0",
-    "incident_temporal_iou_merge_thr": "0.42",
+    "incident_stale_finalize_sec": "20.0",
+    "incident_temporal_iou_merge_thr": "0.30",
+
+    # Production'da False.
     "incident_write_nonfight": False,
 }
 

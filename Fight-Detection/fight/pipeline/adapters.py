@@ -206,13 +206,15 @@ class Stage3Adapter:
         assert spec is not None and spec.loader is not None
         spec.loader.exec_module(mod)
 
+        self.strict = bool(mcfg.get("strict", False))
+
         self.model = mod.load_model(
             str(ckpt_path),
             device=self.device,
             num_classes=self.num_classes,
             model_name=self.model_name,
             pretrained=False,
-            strict=True,
+            strict=self.strict,
         )
         self.model.eval()
 

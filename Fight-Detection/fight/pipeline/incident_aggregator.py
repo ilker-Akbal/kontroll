@@ -53,26 +53,29 @@ class TemporalIncidentState:
     camera_id: str
     source: str
 
-    # idle -> candidate -> confirmed -> cooldown
+    # idle -> active -> confirmed -> cooldown
     state: str = "idle"
 
     segments: List[IncidentSegment] = field(default_factory=list)
     recent_scores: Deque[float] = field(default_factory=lambda: deque(maxlen=7))
 
-    candidate_since_ts: Optional[float] = None
-    confirmed_since_ts: Optional[float] = None
-
-    last_event_end_ts: Optional[float] = None
+    first_wall_ts: float = field(default_factory=time.time)
     last_update_wall_ts: float = field(default_factory=time.time)
 
-    alarm_sent: bool = False
+    last_event_end_ts: Optional[float] = None
     cooldown_until_ts: float = 0.0
+    alarm_sent: bool = False
 
     def add_segment(self, seg: IncidentSegment, vote_window: int) -> None:
         self.segments.append(seg)
-        self.recent_scores = deque(self.recent_scores, maxlen=int(vote_window))
-        self.recent_scores.append(float(seg.prob))
-        self.last_event_end_ts = float(seg.end_ts)
+        self.segments.sort(key=lambda s: (s.start_ts, s.end_ts, s.result.event_id))
+
+        self.recent_scores = deque(
+            [float(s.prob) for s in self.segments[-int(vote_window):]],
+            maxlen=int(vote_window),
+        )
+
+        self.last_event_end_ts = max(float(s.end_ts) for s in self.segments)
         self.last_update_wall_ts = time.time()
 
     @property
@@ -118,12 +121,7 @@ class TemporalIncidentState:
 
     @property
     def decision_score(self) -> float:
-        """
-        Final karar skoru.
-        Sadece mean kullanırsak uzun olaylarda düşük clipler skoru gereksiz düşürür.
-        Sadece max kullanırsak tek yanlış pozitif alarm yapabilir.
-        Bu yüzden max + top-k mean karışımı kullanıyoruz.
-        """
+        # Tek max false-positive olmasın diye max + top-k mean karışımı.
         return (0.65 * self.max_prob) + (0.35 * self.topk_mean_prob)
 
     def vote_count(self, thr: float) -> int:
@@ -137,40 +135,35 @@ class TemporalIncidentState:
 
 class IncidentAggregator:
     """
-    Son karar katmanı.
+    Production incident aggregator.
 
-    Görevi:
-    - Stage3 clip sonuçlarını kamera bazında zamansal olarak toplar.
-    - Birbirine çok benzeyen / overlap olan clipleri Temporal NMS ile bastırır.
-    - Yakın zamanlı clipleri aynı incident altında birleştirir.
-    - Tek cliplik çok güçlü kavga skorunu kaçırmaz.
-    - Zayıf tekil false-positive skorları alarm yapmaz.
-    - Cooldown ile aynı kavga için sürekli alarm üretmez.
-
-    Önemli çıktı:
-    - output_dir/incidents.jsonl
-    - output_dir/incidents/*.mp4
+    Amaç:
+    - Stage3 kısa clip sonuçlarını kamera bazında toplar.
+    - Aynı olaya ait yakın parçaları tek incident altında birleştirir.
+    - 0.50 civarı belirsiz skorları fight yapmaz.
+    - Normal videoda uzun false incident üretmez.
+    - UI tarafına sadece confirmed fight incident yazar.
     """
 
     def __init__(
         self,
         out_dir: str,
-        merge_gap_sec: float = 10.0,
-        max_bridge_nonfight: int = 2,
-        enter_thr: float = 0.62,
-        keep_thr: float = 0.50,
+        merge_gap_sec: float = 20.0,
+        max_bridge_nonfight: int = 1,
+        enter_thr: float = 0.52,
+        keep_thr: float = 0.48,
         vote_window: int = 7,
         vote_enter_needed: int = 2,
         vote_keep_needed: int = 2,
         min_incident_segments: int = 2,
-        single_strong_fight_thr: float = 0.82,
+        single_strong_fight_thr: float = 0.68,
         confirm_min_duration_sec: float = 0.8,
-        cooldown_sec: float = 18.0,
+        cooldown_sec: float = 60.0,
         keep_temp_parts: bool = True,
         write_nonfight_incidents: bool = False,
         clip_ready_wait_sec: float = 8.0,
-        stale_finalize_sec: float = 4.0,
-        temporal_iou_merge_thr: float = 0.42,
+        stale_finalize_sec: float = 8.0,
+        temporal_iou_merge_thr: float = 0.30,
         sweep_interval_sec: float = 0.50,
     ):
         self.out_dir = Path(out_dir)
@@ -213,38 +206,105 @@ class IncidentAggregator:
         )
         self._sweeper.start()
 
+        print(
+            "[INCIDENT][CFG]",
+            f"merge_gap_sec={self.merge_gap_sec}",
+            f"stale_finalize_sec={self.stale_finalize_sec}",
+            f"cooldown_sec={self.cooldown_sec}",
+            f"enter_thr={self.enter_thr}",
+            f"keep_thr={self.keep_thr}",
+            f"vote_enter_needed={self.vote_enter_needed}",
+            f"min_segments={self.min_incident_segments}",
+            f"write_nonfight={self.write_nonfight_incidents}",
+            flush=True,
+        )
+
     def submit(self, result: Stage3Result) -> None:
-        """
-        Stage3Worker burayı çağırır.
-        Burada direkt alarm yok; karar Temporal NMS + aggregation sonrası verilir.
-        """
         with self.lock:
             result = self._normalize_result(result)
+            camera_id = result.camera_id
 
-            st = self.by_camera.get(result.camera_id)
+            st = self.by_camera.get(camera_id)
+
+            # Düşük skorlu sonuçlar yeni incident başlatamaz.
+            # 0.47-0.54 bandını burada direkt bastırıyoruz.
+            if st is None and result.fight_prob < self.keep_thr:
+                print(
+                    f"[INCIDENT][IGNORE] camera={camera_id} event={result.event_id} "
+                    f"prob={result.fight_prob:.4f} reason=below_keep_thr",
+                    flush=True,
+                )
+                return
+
             if st is None:
-                st = self._new_state(result.camera_id, result.source)
-                self.by_camera[result.camera_id] = st
+                st = self._new_state(camera_id, result.source)
+                self.by_camera[camera_id] = st
 
-            # Cooldown içindeyken gelen yeni clip aynı olayla ilişkiliyse mevcut state'e eklenebilir
-            # ama yeni alarm üretilmez.
             if st.state == "cooldown":
                 if float(result.event_start_ts) <= float(st.cooldown_until_ts):
-                    if self._can_merge(st, result):
-                        self._append_or_suppress_locked(st, result)
+                    print(
+                        f"[INCIDENT][COOLDOWN] camera={camera_id} event={result.event_id} "
+                        f"prob={result.fight_prob:.4f} ignored",
+                        flush=True,
+                    )
                     return
 
-                st = self._new_state(result.camera_id, result.source)
-                self.by_camera[result.camera_id] = st
+                st = self._new_state(camera_id, result.source)
+                self.by_camera[camera_id] = st
 
-            # Zaman olarak çok uzaksa eski incident finalize edilir.
-            if st.state in ("candidate", "confirmed") and not self._can_merge(st, result):
-                self._finalize_locked(result.camera_id, force=(st.state == "confirmed"))
-                st = self._new_state(result.camera_id, result.source)
-                self.by_camera[result.camera_id] = st
+            # Idle state düşük skorla başlamasın.
+            if st.state == "idle" and not st.segments and result.fight_prob < self.keep_thr:
+                print(
+                    f"[INCIDENT][IGNORE] camera={camera_id} event={result.event_id} "
+                    f"prob={result.fight_prob:.4f} reason=idle_below_keep_thr",
+                    flush=True,
+                )
+                return
+
+            # Aktif incident varsa ve yeni sonuç aynı olayın parçası değilse eskisini kapat.
+            if st.segments and not self._can_merge(st, result):
+                self._finalize_locked(camera_id, force=(st.state == "confirmed"))
+
+                st = self.by_camera.get(camera_id)
+                if st is not None and st.state == "cooldown":
+                    if float(result.event_start_ts) <= float(st.cooldown_until_ts):
+                        return
+
+                if result.fight_prob < self.keep_thr:
+                    return
+
+                st = self._new_state(camera_id, result.source)
+                self.by_camera[camera_id] = st
+
+            # Confirmed olmayan incident'e çok düşük skorları ekleme.
+            # Confirmed incidentte ise kısa non-fight bridge için sınırlı izin ver.
+            if st.state != "confirmed" and result.fight_prob < self.keep_thr:
+                print(
+                    f"[INCIDENT][IGNORE] camera={camera_id} event={result.event_id} "
+                    f"prob={result.fight_prob:.4f} reason=active_below_keep_thr",
+                    flush=True,
+                )
+                return
+
+            if st.state == "confirmed" and result.fight_prob < self.keep_thr:
+                recent_nonfight = sum(1 for x in st.recent_scores if float(x) < self.keep_thr)
+                if recent_nonfight >= self.max_bridge_nonfight:
+                    print(
+                        f"[INCIDENT][BRIDGE_LIMIT] camera={camera_id} event={result.event_id} "
+                        f"prob={result.fight_prob:.4f} ignored",
+                        flush=True,
+                    )
+                    return
 
             self._append_or_suppress_locked(st, result)
             self._advance_state_locked(st)
+
+            print(
+                f"[INCIDENT][UPDATE] camera={st.camera_id} incident={st.incident_id} "
+                f"state={st.state} parts={st.part_count} prob={result.fight_prob:.4f} "
+                f"max={st.max_prob:.4f} decision={st.decision_score:.4f}",
+                flush=True,
+            )
 
     def close_all(self) -> None:
         self._stop_event.set()
@@ -271,18 +331,16 @@ class IncidentAggregator:
                 now_wall = time.time()
 
                 for camera_id, st in list(self.by_camera.items()):
-                    if st.state not in ("candidate", "confirmed"):
+                    if st.state not in ("active", "confirmed"):
                         continue
 
                     idle_for = now_wall - float(st.last_update_wall_ts)
                     if idle_for < self.stale_finalize_sec:
                         continue
 
-                    if st.state == "candidate":
-                        if self._can_confirm(st):
-                            st.state = "confirmed"
-                            st.confirmed_since_ts = st.start_ts
-                            st.alarm_sent = True
+                    if st.state == "active" and self._can_confirm(st):
+                        st.state = "confirmed"
+                        st.alarm_sent = True
 
                     finalize_items.append((camera_id, st.state == "confirmed"))
 
@@ -294,6 +352,7 @@ class IncidentAggregator:
     def _normalize_result(self, result: Stage3Result) -> Stage3Result:
         start_ts = float(result.event_start_ts)
         end_ts = float(result.event_end_ts)
+
         if end_ts < start_ts:
             start_ts, end_ts = end_ts, start_ts
 
@@ -338,10 +397,6 @@ class IncidentAggregator:
         return inter / union
 
     def _temporal_overlap_ratio(self, a: Stage3Result, b: Stage3Result) -> float:
-        """
-        Kısa clip uzun clip içinde kalırsa IoU düşük çıkabilir.
-        Bu yüzden overlap / kısa_segment de bakıyoruz.
-        """
         a_len = max(1e-6, float(a.event_end_ts) - float(a.event_start_ts))
         b_len = max(1e-6, float(b.event_end_ts) - float(b.event_start_ts))
 
@@ -353,19 +408,13 @@ class IncidentAggregator:
         return inter / max(1e-6, min(a_len, b_len))
 
     def _append_or_suppress_locked(self, st: TemporalIncidentState, result: Stage3Result) -> None:
-        """
-        Temporal NMS:
-        Aynı event_id veya ciddi overlap varsa düşük skorlu segmenti bastır,
-        yüksek skorlu olanı sakla.
-        """
         new_seg = IncidentSegment(result=result)
 
         if not st.segments:
             st.add_segment(new_seg, self.vote_window)
             return
 
-        suppress_idx = None
-        best_overlap = 0.0
+        replace_idx = None
 
         for i in range(len(st.segments) - 1, -1, -1):
             old = st.segments[i].result
@@ -380,27 +429,20 @@ class IncidentAggregator:
             )
             cover = self._temporal_overlap_ratio(old, result)
 
-            # Son birkaç saniyedeki overlap segmentler aynı olayın farklı kırpımıdır.
-            close_start = abs(float(old.event_start_ts) - float(result.event_start_ts)) <= self.merge_gap_sec
+            # Sadece gerçekten overlap edenleri tekilleştir.
+            # Yakın ama overlap etmeyen parçalar aynı incident içinde ayrı part olarak kalır.
+            if same_event or tiou >= self.temporal_iou_merge_thr or cover >= 0.70:
+                replace_idx = i
+                break
 
-            should_suppress = same_event or (
-                close_start and (tiou >= self.temporal_iou_merge_thr or cover >= 0.70)
-            )
-
-            if should_suppress and max(tiou, cover) >= best_overlap:
-                best_overlap = max(tiou, cover)
-                suppress_idx = i
-
-        if suppress_idx is None:
+        if replace_idx is None:
             st.add_segment(new_seg, self.vote_window)
             return
 
-        old_seg = st.segments[suppress_idx]
+        old_seg = st.segments[replace_idx]
 
-        # Yüksek skorlu segmenti tut. Böylece Stage3 tekrar tekrar aynı olayı işlerse
-        # tek alarm/tek incident olur.
         if new_seg.prob >= old_seg.prob:
-            st.segments[suppress_idx] = new_seg
+            st.segments[replace_idx] = new_seg
 
         st.last_update_wall_ts = time.time()
         st.last_event_end_ts = max(
@@ -408,11 +450,10 @@ class IncidentAggregator:
             float(result.event_end_ts),
         )
 
-        # NMS sonrası vote history'yi güncel segmentlerden yeniden kur.
         self._rebuild_recent_scores(st)
 
     def _rebuild_recent_scores(self, st: TemporalIncidentState) -> None:
-        vals = [seg.prob for seg in st.segments[-self.vote_window :]]
+        vals = [seg.prob for seg in st.segments[-self.vote_window:]]
         st.recent_scores = deque(vals, maxlen=self.vote_window)
 
     def _can_merge(self, st: TemporalIncidentState, result: Stage3Result) -> bool:
@@ -421,15 +462,19 @@ class IncidentAggregator:
 
         gap = st.last_gap_to(result)
 
-        # Overlap veya temas varsa kesin aynı olay.
+        for seg in st.segments[-5:]:
+            tiou = self._temporal_iou(
+                seg.result.event_start_ts,
+                seg.result.event_end_ts,
+                result.event_start_ts,
+                result.event_end_ts,
+            )
+            cover = self._temporal_overlap_ratio(seg.result, result)
+            if tiou >= self.temporal_iou_merge_thr or cover >= 0.70:
+                return True
+
         if gap <= self.merge_gap_sec:
             return True
-
-        # Çok güçlü bir confirmed olaydan sonra kısa kopmalar olabilir.
-        # Araya 1-2 tane düşük skor girse bile tek incident tut.
-        if st.state == "confirmed" and gap <= (self.merge_gap_sec * 1.5):
-            recent_nonfight = sum(1 for x in st.recent_scores if float(x) < self.keep_thr)
-            return recent_nonfight <= self.max_bridge_nonfight
 
         return False
 
@@ -438,82 +483,68 @@ class IncidentAggregator:
             st.state = "idle"
             return
 
-        current_prob = st.segments[-1].prob
-        vote_enter = st.vote_count(self.keep_thr)
-
         if st.state == "idle":
-            if (
-                current_prob >= self.enter_thr
-                or st.max_prob >= self.single_strong_fight_thr
-                or vote_enter >= self.vote_enter_needed
-            ):
-                st.state = "candidate"
-                st.candidate_since_ts = st.start_ts
+            st.state = "active"
 
-                if self._can_confirm(st):
-                    st.state = "confirmed"
-                    st.confirmed_since_ts = st.start_ts
-                    st.alarm_sent = True
-            return
-
-        if st.state == "candidate":
-            if self._can_confirm(st):
-                st.state = "confirmed"
-                st.confirmed_since_ts = st.start_ts
-                st.alarm_sent = True
-                return
-
-            # Eski sürümde burada segmentler tamamen silinebiliyordu.
-            # Bu, "Stage3 fight dedi ama alarm yok" hissini artırır.
-            # Artık sadece çok zayıf ve yeterince beklemiş adayları düşürüyoruz.
-            if (
-                st.part_count >= self.vote_window
-                and st.max_prob < self.enter_thr
-                and st.decision_score < self.keep_thr
-                and st.vote_count(self.keep_thr) == 0
-            ):
-                st.state = "idle"
-                st.segments.clear()
-                st.recent_scores.clear()
-            return
-
-        if st.state == "confirmed":
-            # Confirmed olduktan sonra final kararı sweeper/finalize verir.
-            return
+        if self._can_confirm(st):
+            st.state = "confirmed"
+            st.alarm_sent = True
 
     def _can_confirm(self, st: TemporalIncidentState) -> bool:
         if not st.segments:
             return False
 
-        current_prob = st.segments[-1].prob
-        vote_enter = st.vote_count(self.keep_thr)
-
-        # Çok güçlü tek clip: kaçırma.
+        # Tek çok güçlü clip varsa kaçırma.
         if st.max_prob >= self.single_strong_fight_thr:
             return True
 
-        # En az 2 segmentli normal doğrulama.
+        # Tek zayıf/orta clip ile alarm yok.
         if st.part_count < self.min_incident_segments:
             return False
 
-        # Süre çok kısaysa ve çok güçlü skor yoksa alarm verme.
         if st.duration_sec < self.confirm_min_duration_sec:
             return False
 
-        if current_prob >= self.enter_thr and vote_enter >= max(1, self.vote_enter_needed - 1):
+        strong_votes = st.vote_count(self.enter_thr)
+        keep_votes = st.vote_count(self.keep_thr)
+
+        # Production ana karar: en az 2 güçlü Stage3 sonucu.
+        if strong_votes >= self.vote_enter_needed:
             return True
 
-        if vote_enter >= self.vote_enter_needed:
-            return True
-
-        if st.decision_score >= self.enter_thr and st.vote_count(self.keep_thr) >= self.vote_keep_needed:
+        # Alternatif: en az 3 keep oyu ve genel karar skoru yüksekse.
+        if keep_votes >= max(3, self.vote_keep_needed) and st.decision_score >= self.enter_thr:
             return True
 
         return False
 
+    def _final_label(self, st: TemporalIncidentState) -> str:
+        if not st.segments:
+            return "non_fight"
+
+        if st.max_prob >= self.single_strong_fight_thr:
+            return "fight"
+
+        if st.state != "confirmed":
+            return "non_fight"
+
+        strong_votes = st.vote_count(self.enter_thr)
+        keep_votes = st.vote_count(self.keep_thr)
+
+        if strong_votes >= self.vote_enter_needed:
+            return "fight"
+
+        if keep_votes >= max(3, self.vote_keep_needed) and st.decision_score >= self.enter_thr:
+            return "fight"
+
+        return "non_fight"
+
     def _finalize_locked(self, camera_id: str, force: bool = False) -> None:
         st = self.by_camera.get(camera_id)
         if st is None:
+            return
+
+        if st.state == "cooldown":
             return
 
         if not st.segments:
@@ -523,6 +554,11 @@ class IncidentAggregator:
         final_label = self._final_label(st)
 
         if final_label != "fight" and not self.write_nonfight_incidents:
+            print(
+                f"[INCIDENT][DROP] camera={st.camera_id} incident={st.incident_id} "
+                f"label={final_label} max={st.max_prob:.4f} decision={st.decision_score:.4f}",
+                flush=True,
+            )
             self.by_camera.pop(camera_id, None)
             return
 
@@ -533,7 +569,8 @@ class IncidentAggregator:
         if not self._wait_clips_ready(st):
             print(
                 f"[INCIDENT][WARN] clips not ready, skip incident camera={st.camera_id} "
-                f"incident={st.incident_id}"
+                f"incident={st.incident_id}",
+                flush=True,
             )
             self.by_camera.pop(camera_id, None)
             return
@@ -541,11 +578,14 @@ class IncidentAggregator:
         ts = datetime.fromtimestamp(st.start_ts).strftime("%Y%m%d_%H%M%S_%f")[:-3]
         out_path = self.out_dir / f"{st.incident_id}__{ts}__{final_label}.mp4"
 
-        ok = self._concat_mp4s([seg.result.clip_path for seg in st.segments], out_path)
+        clip_paths = [seg.result.clip_path for seg in st.segments]
+        ok = self._concat_mp4s(clip_paths, out_path)
+
         if not ok:
             print(
                 f"[INCIDENT][WARN] concat failed camera={st.camera_id} "
-                f"incident={st.incident_id}"
+                f"incident={st.incident_id}",
+                flush=True,
             )
             self.by_camera.pop(camera_id, None)
             return
@@ -599,7 +639,8 @@ class IncidentAggregator:
             f"[INCIDENT] camera={st.camera_id} incident={st.incident_id} "
             f"parts={st.part_count} label={final_label} "
             f"max={st.max_prob:.4f} mean={st.mean_prob:.4f} "
-            f"decision={st.decision_score:.4f} out={out_path}"
+            f"decision={st.decision_score:.4f} out={out_path}",
+            flush=True,
         )
 
         if not self.keep_temp_parts:
@@ -617,29 +658,11 @@ class IncidentAggregator:
         cooldown_state.alarm_sent = True
         cooldown_state.last_update_wall_ts = time.time()
         cooldown_state.recent_scores = deque(
-            [seg.prob for seg in st.segments[-self.vote_window :]],
+            [seg.prob for seg in st.segments[-self.vote_window:]],
             maxlen=self.vote_window,
         )
 
         self.by_camera[camera_id] = cooldown_state
-
-    def _final_label(self, st: TemporalIncidentState) -> str:
-        if st.max_prob >= self.single_strong_fight_thr:
-            return "fight"
-
-        if st.state == "confirmed":
-            if st.decision_score >= self.keep_thr:
-                return "fight"
-            if st.vote_count(self.keep_thr) >= self.vote_keep_needed:
-                return "fight"
-
-        if st.part_count >= self.min_incident_segments:
-            if st.decision_score >= self.enter_thr:
-                return "fight"
-            if st.vote_count(self.keep_thr) >= self.vote_enter_needed:
-                return "fight"
-
-        return "non_fight"
 
     def _clips_ready(self, st: TemporalIncidentState) -> bool:
         for seg in st.segments:
