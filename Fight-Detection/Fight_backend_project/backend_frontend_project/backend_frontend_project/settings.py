@@ -26,6 +26,7 @@ ALLOWED_HOSTS = [
 ]
 
 
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -215,7 +216,6 @@ FRONTEND_URL = os.getenv(
     "FRONTEND_URL",
     "http://127.0.0.1:8000",
 )
-
 MAIL_LOGO_URL = os.getenv(
     "MAIL_LOGO_URL",
     f"{FRONTEND_URL}/static/images/togu-logo.png",
