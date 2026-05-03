@@ -195,6 +195,7 @@ class ReportHub:
                 "event_id",
                 "event_start",
                 "event_end",
+                "duration_sec",
                 "status",
                 "pose_score_max",
                 "pose_score_mean",
@@ -746,6 +747,8 @@ class CameraWorker(threading.Thread):
             return
 
         event_end_ts = ev.last_ts
+        event_duration_sec = max(0.0, float(event_end_ts) - float(ev.start_ts))
+
         pose_max = max(ev.pose_scores) if ev.pose_scores else 0.0
         pose_mean = sum(ev.pose_scores) / max(1, len(ev.pose_scores)) if ev.pose_scores else 0.0
 
@@ -755,6 +758,8 @@ class CameraWorker(threading.Thread):
         )
         clip_path = self.temp_segments_dir / clip_name
 
+        # Temp segmenti kanıt/debug için yine kaydediyoruz.
+        # Ancak Stage3'e göndermek için aşağıdaki kalite filtresinden geçmesi gerekir.
         if ev.frames:
             try:
                 self.clip_queue.put_nowait(
@@ -775,8 +780,54 @@ class CameraWorker(threading.Thread):
         queue_reason = reason
 
         min_queue_frames = int(self.args.min_queue_frames)
+
+        min_positive_hits = int(getattr(self.args, "stage3_event_min_positive_hits", 12))
+        min_pose_mean = float(getattr(self.args, "stage3_event_min_pose_mean", 0.28))
+        min_pose_max = float(getattr(self.args, "stage3_event_min_pose_max", 0.58))
+        min_duration_sec = float(getattr(self.args, "stage3_event_min_duration_sec", 0.70))
+
+        raw_drop_reasons = str(
+            getattr(
+                self.args,
+                "stage3_drop_close_reasons",
+                "pair_roi_missing,roi_crop_failed",
+            )
+        )
+        drop_reasons = {x.strip() for x in raw_drop_reasons.split(",") if x.strip()}
+
+        event_quality_ok = True
+        quality_reasons: List[str] = []
+
+        # Bu kapanış sebepleri normal videolarda false positive üretmeye yatkın.
+        if str(reason) in drop_reasons:
+            event_quality_ok = False
+            quality_reasons.append(f"bad_close_reason_{reason}")
+
+        if int(len(ev.frames)) < min_queue_frames:
+            event_quality_ok = False
+            quality_reasons.append(f"short_frames_{len(ev.frames)}<{min_queue_frames}")
+
+        if float(event_duration_sec) < min_duration_sec:
+            event_quality_ok = False
+            quality_reasons.append(f"short_duration_{event_duration_sec:.2f}<{min_duration_sec:.2f}")
+
+        if int(ev.positive_hits) < min_positive_hits:
+            event_quality_ok = False
+            quality_reasons.append(f"low_positive_hits_{ev.positive_hits}<{min_positive_hits}")
+
+        if float(pose_mean) < min_pose_mean:
+            event_quality_ok = False
+            quality_reasons.append(f"low_pose_mean_{pose_mean:.3f}<{min_pose_mean:.3f}")
+
+        if float(pose_max) < min_pose_max:
+            event_quality_ok = False
+            quality_reasons.append(f"low_pose_max_{pose_max:.3f}<{min_pose_max:.3f}")
+
         if self.shared.stage3 is not None:
-            if len(ev.frames) >= min_queue_frames:
+            if not event_quality_ok:
+                queue_status = "dropped"
+                queue_reason = "low_event_quality:" + ",".join(quality_reasons)
+            else:
                 job = Stage3Job(
                     camera_id=self.camera_id,
                     source=self.source,
@@ -795,9 +846,6 @@ class CameraWorker(threading.Thread):
                 except queue.Full:
                     queue_status = "dropped"
                     queue_reason = "stage3_queue_full"
-            else:
-                queue_status = "dropped"
-                queue_reason = "clip_too_short_for_stage3"
         else:
             queue_status = "skipped"
             queue_reason = "stage3_disabled"
@@ -808,6 +856,7 @@ class CameraWorker(threading.Thread):
             "event_id": ev.event_id,
             "event_start": ts_to_str(ev.start_ts),
             "event_end": ts_to_str(event_end_ts),
+            "duration_sec": round(float(event_duration_sec), 3),
             "status": reason,
             "pose_score_max": round(float(pose_max), 6),
             "pose_score_mean": round(float(pose_mean), 6),
@@ -849,7 +898,10 @@ class CameraWorker(threading.Thread):
                 "latest_stage3_prob": self.latest_stage3_prob,
                 "latest_stage3_label": self.latest_stage3_label,
                 "frames": int(len(ev.frames)),
+                "duration_sec": round(float(event_duration_sec), 3),
                 "pose_score": round(float(pose_mean), 6),
+                "pose_score_max": round(float(pose_max), 6),
+                "positive_hits": int(ev.positive_hits),
                 "queue_size": self.stage3_queue.qsize(),
                 "queue_capacity": self.stage3_queue.maxsize,
                 "clip_path": str(clip_path),
@@ -857,11 +909,16 @@ class CameraWorker(threading.Thread):
         )
 
         LOG.info(
-            "[CAM %s] event closed -> %s reason=%s frames=%d queue=%s/%s",
+            "[CAM %s] event closed -> %s reason=%s frames=%d duration=%.2fs "
+            "pose_mean=%.3f pose_max=%.3f hits=%d queue=%s/%s",
             self.camera_id,
             ev.event_id,
             reason,
             len(ev.frames),
+            event_duration_sec,
+            pose_mean,
+            pose_max,
+            ev.positive_hits,
             queue_status,
             queue_reason,
         )
@@ -1407,24 +1464,36 @@ def build_argparser() -> argparse.ArgumentParser:
 
     ap.add_argument("--use-pose", action="store_true", default=True)
     ap.add_argument("--use-stage3", action="store_true", default=True)
-    ap.add_argument("--fight-thr", type=float, default=0.60)
-    ap.add_argument("--min-queue-frames", type=int, default=20, help="minimum clip frames before sending to stage3")
+    ap.add_argument("--fight-thr", type=float, default=0.52)
+    ap.add_argument("--min-queue-frames", type=int, default=32, help="minimum clip frames before sending to stage3")
     ap.add_argument("--stage3-queue-size", type=int, default=64)
 
-    ap.add_argument("--incident-enter-thr", type=float, default=0.62)
+    # Stage3'e göndermeden önce event kalite filtresi.
+    # Normal videolarda düşük kaliteli pose eventleri 0.50 civarı X3D skoru üretip false alarm yapabiliyor.
+    ap.add_argument("--stage3-event-min-positive-hits", type=int, default=8)
+    ap.add_argument("--stage3-event-min-pose-mean", type=float, default=0.20)
+    ap.add_argument("--stage3-event-min-pose-max", type=float, default=0.45)
+    ap.add_argument("--stage3-event-min-duration-sec", type=float, default=0.45)
+    ap.add_argument(
+        "--stage3-drop-close-reasons",
+        type=str,
+        default="pair_roi_missing,roi_crop_failed",
+    )
+
+    ap.add_argument("--incident-enter-thr", type=float, default=0.52)
     ap.add_argument("--incident-keep-thr", type=float, default=0.48)
-    ap.add_argument("--incident-vote-window", type=int, default=5)
-    ap.add_argument("--incident-vote-enter-needed", type=int, default=3)
+    ap.add_argument("--incident-vote-window", type=int, default=7)
+    ap.add_argument("--incident-vote-enter-needed", type=int, default=2)
     ap.add_argument("--incident-vote-keep-needed", type=int, default=2)
-    ap.add_argument("--incident-merge-gap-sec", type=float, default=12.0)
-    ap.add_argument("--incident-max-bridge-nonfight", type=int, default=2)
+    ap.add_argument("--incident-merge-gap-sec", type=float, default=20.0)
+    ap.add_argument("--incident-max-bridge-nonfight", type=int, default=1)
     ap.add_argument("--incident-min-segments", type=int, default=2)
-    ap.add_argument("--incident-single-strong-fight-thr", type=float, default=0.78)
-    ap.add_argument("--incident-confirm-min-duration-sec", type=float, default=1.0)
-    ap.add_argument("--incident-cooldown-sec", type=float, default=20.0)
+    ap.add_argument("--incident-single-strong-fight-thr", type=float, default=0.68)
+    ap.add_argument("--incident-confirm-min-duration-sec", type=float, default=0.8)
+    ap.add_argument("--incident-cooldown-sec", type=float, default=60.0)
     ap.add_argument("--incident-clip-ready-wait-sec", type=float, default=8.0)
-    ap.add_argument("--incident-stale-finalize-sec", type=float, default=10.0)
-    ap.add_argument("--incident-temporal-iou-merge-thr", type=float, default=0.50)
+    ap.add_argument("--incident-stale-finalize-sec", type=float, default=8.0)
+    ap.add_argument("--incident-temporal-iou-merge-thr", type=float, default=0.30)
     ap.add_argument("--incident-write-nonfight", action="store_true", default=False)
 
     ap.add_argument("--preview-every-frames", type=int, default=4)

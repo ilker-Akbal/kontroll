@@ -1,5 +1,7 @@
 from django import forms
 from django.contrib.auth.models import User
+from django.contrib.auth.forms import PasswordChangeForm
+
 from .models import UserProfile
 
 
@@ -8,16 +10,19 @@ class UserRegisterForm(forms.Form):
         choices=UserProfile.FACULTY_CHOICES,
         widget=forms.Select()
     )
+
     email = forms.EmailField(
         widget=forms.EmailInput(
             attrs={"placeholder": "ornek@togu.edu.tr"}
         )
     )
+
     password1 = forms.CharField(
         widget=forms.PasswordInput(
             attrs={"placeholder": "Şifrenizi girin"}
         )
     )
+
     password2 = forms.CharField(
         widget=forms.PasswordInput(
             attrs={"placeholder": "Şifrenizi tekrar girin"}
@@ -26,12 +31,15 @@ class UserRegisterForm(forms.Form):
 
     def clean_email(self):
         email = self.cleaned_data.get("email")
+
         if User.objects.filter(email=email).exists():
             raise forms.ValidationError("Bu mail adresi zaten kayıtlı.")
+
         return email
 
     def clean(self):
         cleaned_data = super().clean()
+
         password1 = cleaned_data.get("password1")
         password2 = cleaned_data.get("password2")
 
@@ -55,3 +63,97 @@ class UserRegisterForm(forms.Form):
         user.profile.save()
 
         return user
+
+
+class AccountUpdateForm(forms.ModelForm):
+    faculty = forms.ChoiceField(
+        label="Fakülte",
+        choices=UserProfile.FACULTY_CHOICES,
+        required=False,
+        widget=forms.Select(attrs={
+            "class": "account-input",
+        }),
+    )
+
+    class Meta:
+        model = User
+        fields = ["username", "email"]
+
+        labels = {
+            "username": "Kullanıcı Adı",
+            "email": "E-posta",
+        }
+
+        widgets = {
+            "username": forms.TextInput(attrs={
+                "class": "account-input",
+                "placeholder": "Kullanıcı adınızı girin",
+            }),
+            "email": forms.EmailInput(attrs={
+                "class": "account-input",
+                "placeholder": "E-posta adresinizi girin",
+            }),
+        }
+
+    def __init__(self, *args, **kwargs):
+        self.profile = kwargs.pop("profile", None)
+
+        super().__init__(*args, **kwargs)
+
+        if self.profile:
+            self.fields["faculty"].initial = self.profile.faculty
+
+    def clean_username(self):
+        username = self.cleaned_data.get("username")
+        user_id = self.instance.id
+
+        if User.objects.exclude(id=user_id).filter(username=username).exists():
+            raise forms.ValidationError("Bu kullanıcı adı zaten kullanılıyor.")
+
+        return username
+
+    def clean_email(self):
+        email = self.cleaned_data.get("email")
+        user_id = self.instance.id
+
+        if email and User.objects.exclude(id=user_id).filter(email=email).exists():
+            raise forms.ValidationError("Bu e-posta adresi zaten kullanılıyor.")
+
+        return email
+
+    def save(self, commit=True):
+        user = super().save(commit=commit)
+
+        if self.profile:
+            self.profile.faculty = self.cleaned_data.get("faculty")
+
+            if commit:
+                self.profile.save()
+
+        return user
+
+
+class CustomPasswordChangeForm(PasswordChangeForm):
+    old_password = forms.CharField(
+        label="Mevcut Şifre",
+        widget=forms.PasswordInput(attrs={
+            "class": "account-input",
+            "placeholder": "Mevcut şifrenizi girin",
+        }),
+    )
+
+    new_password1 = forms.CharField(
+        label="Yeni Şifre",
+        widget=forms.PasswordInput(attrs={
+            "class": "account-input",
+            "placeholder": "Yeni şifrenizi girin",
+        }),
+    )
+
+    new_password2 = forms.CharField(
+        label="Yeni Şifre Tekrar",
+        widget=forms.PasswordInput(attrs={
+            "class": "account-input",
+            "placeholder": "Yeni şifrenizi tekrar girin",
+        }),
+    )

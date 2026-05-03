@@ -1,4 +1,6 @@
-﻿import os
+﻿from __future__ import annotations
+
+import os
 import json
 import glob
 import csv
@@ -8,10 +10,16 @@ import torch
 import torch.nn.functional as F
 import yaml
 
-from model_loader import load_model
-from clip_sampler import load_event_clips
-from transforms import preprocess_clip
-from aggregate import aggregate_scores
+try:
+    from .model_loader import load_model
+    from .clip_sampler import load_event_clips
+    from .transforms import preprocess_clip
+    from .aggregate import aggregate_scores
+except Exception:
+    from model_loader import load_model
+    from clip_sampler import load_event_clips
+    from transforms import preprocess_clip
+    from aggregate import aggregate_scores
 
 
 def _ensure_dir(p: str):
@@ -21,40 +29,93 @@ def _ensure_dir(p: str):
 def _load_cfg(cfg_path: str) -> dict:
     with open(cfg_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
+
     if cfg is None or not isinstance(cfg, dict):
         raise ValueError(f"Invalid stage3 yaml: {cfg_path}")
+
     return cfg
 
 
+def _resolve_amp_dtype(torch_mod, device: str, dtype_name: str):
+    dtype_name = str(dtype_name or "bf16").lower().strip()
+
+    if not str(device).startswith("cuda"):
+        return torch_mod.float32
+
+    if dtype_name in {"bf16", "bfloat16"}:
+        try:
+            if torch_mod.cuda.is_bf16_supported():
+                return torch_mod.bfloat16
+        except Exception:
+            pass
+        return torch_mod.float16
+
+    if dtype_name in {"fp16", "float16", "half"}:
+        return torch_mod.float16
+
+    return torch_mod.float16
+
+
 @torch.no_grad()
-def infer_events(events_dir: str, out_dir: str, cfg_path: str, weights_path: str | None = None) -> Dict[str, float]:
+def infer_events(
+    events_dir: str,
+    out_dir: str,
+    cfg_path: str,
+    weights_path: str | None = None,
+) -> Dict[str, float]:
     cfg = _load_cfg(cfg_path)
 
-    device = cfg.get("model", {}).get("device", "cuda" if torch.cuda.is_available() else "cpu")
-    amp = bool(cfg.get("model", {}).get("amp", True))
-    num_classes = int(cfg.get("model", {}).get("num_classes", 2))
+    mcfg = cfg.get("model", {}) or {}
+    icfg = cfg.get("input", {}) or {}
+    infcfg = cfg.get("inference", {}) or {}
 
-    clip_len = int(cfg.get("input", {}).get("clip_len", 32))
-    size = int(cfg.get("input", {}).get("size", 224))
-    fps_sample = int(cfg.get("input", {}).get("fps_sample", 16))
+    model_name = str(mcfg.get("name", "x3d_m"))
+    device = str(mcfg.get("device", "cuda" if torch.cuda.is_available() else "cpu"))
+    amp = bool(mcfg.get("amp", True))
+    amp_dtype_name = str(mcfg.get("amp_dtype", "bf16"))
+    num_classes = int(mcfg.get("num_classes", 2))
 
-    batch_size = int(cfg.get("inference", {}).get("batch", 4))
-    agg_mode = str(cfg.get("inference", {}).get("agg", "mean"))
+    context_frames = int(icfg.get("context_frames", 64))
+    clip_len = int(icfg.get("clip_len", 16))
+    size = int(icfg.get("size", 224))
+    fps_sample = int(icfg.get("fps_sample", 16))
+
+    batch_size = int(infcfg.get("batch", 4))
+    agg_mode = str(infcfg.get("agg", "mean"))
 
     if device.startswith("cuda") and not torch.cuda.is_available():
         device = "cpu"
         amp = False
 
+    amp_dtype = _resolve_amp_dtype(torch, device, amp_dtype_name)
+
     if weights_path is None:
-        weights_path = cfg.get("model", {}).get("ckpt_path", "")
+        weights_path = mcfg.get("ckpt_path", "")
 
     _ensure_dir(out_dir)
 
-    model = load_model(weights_path, device=device, num_classes=num_classes)
-    if device.startswith("cuda"):
-        torch.backends.cudnn.benchmark = True
+    model = load_model(
+        weights_path,
+        device=device,
+        num_classes=num_classes,
+        model_name=model_name,
+        pretrained=False,
+        strict=True,
+    )
 
-    event_dirs = sorted([p for p in glob.glob(os.path.join(events_dir, "event_*")) if os.path.isdir(p)])
+    if device.startswith("cuda"):
+        try:
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
+            torch.set_float32_matmul_precision("high")
+        except Exception:
+            pass
+
+    event_dirs = sorted(
+        [p for p in glob.glob(os.path.join(events_dir, "event_*")) if os.path.isdir(p)]
+    )
+
     if not event_dirs:
         raise RuntimeError(f"No event_* dirs found under: {events_dir}")
 
@@ -66,6 +127,7 @@ def infer_events(events_dir: str, out_dir: str, cfg_path: str, weights_path: str
 
     for ev_dir in event_dirs:
         ev_id = os.path.basename(ev_dir)
+
         crop_path = os.path.join(ev_dir, "crop.mp4")
         if not os.path.isfile(crop_path):
             alt = os.path.join(ev_dir, "crop.avi")
@@ -74,24 +136,50 @@ def infer_events(events_dir: str, out_dir: str, cfg_path: str, weights_path: str
             else:
                 continue
 
-        _, clips = load_event_clips(crop_path, clip_len=clip_len, fps_sample=fps_sample)
+        _, clips = load_event_clips(
+            crop_path,
+            clip_len=clip_len,
+            fps_sample=fps_sample,
+            context_frames=context_frames,
+        )
 
         clip_tensors: List[torch.Tensor] = []
+
         for clip_frames in clips:
-            x = preprocess_clip(clip_frames, size=size)
+            x = preprocess_clip(
+                clip_frames,
+                size=size,
+                num_frames=clip_len,
+            )
             clip_tensors.append(x)
 
+        if not clip_tensors:
+            event_scores[ev_id] = 0.0
+            continue
+
         scores = []
+
         for i in range(0, len(clip_tensors), batch_size):
             batch = torch.stack(clip_tensors[i:i + batch_size], dim=0).to(device)
 
             if device.startswith("cuda"):
-                with torch.amp.autocast("cuda", enabled=amp):
+                with torch.amp.autocast(
+                    device_type="cuda",
+                    dtype=amp_dtype,
+                    enabled=amp,
+                ):
                     logits = model(batch)
             else:
                 logits = model(batch)
 
-            probs = F.softmax(logits, dim=1)[:, 1]
+            if isinstance(logits, (tuple, list)):
+                logits = logits[0]
+
+            if hasattr(logits, "ndim") and logits.ndim == 2 and logits.shape[1] >= 2:
+                probs = F.softmax(logits, dim=1)[:, 1]
+            else:
+                probs = torch.sigmoid(logits).view(-1)
+
             probs = probs.detach().float().cpu().tolist()
 
             for j, p in enumerate(probs):

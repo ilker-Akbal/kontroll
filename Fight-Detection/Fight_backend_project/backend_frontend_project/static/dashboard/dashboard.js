@@ -27,7 +27,20 @@ function getCookie(name) {
 
 const csrfToken = getCookie("csrftoken");
 
+function updateLiveStatusBadge(pipeline) {
+  const badge = document.getElementById("live-status-badge");
+  if (!badge) return;
+
+  const running = !!pipeline?.running;
+
+  badge.innerHTML = running
+    ? '<span class="status-on">● Sistem Aktif</span>'
+    : '<span class="status-off">● Sistem Durduruldu</span>';
+}
+
 function createRow(cameraId = "", source = "") {
+  if (!rowTemplate || !cameraRows) return;
+
   const node = rowTemplate.content.cloneNode(true);
   const row = node.querySelector(".camera-row");
   const title = node.querySelector(".row-title");
@@ -74,7 +87,7 @@ function collectSources() {
 }
 
 function escapeHtml(value) {
-  return String(value)
+  return String(value ?? "")
     .replaceAll("&", "&amp;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
@@ -203,13 +216,22 @@ function buildEmptyState(message) {
 async function fetchStatus() {
   try {
     const response = await fetch("/dashboard/status/");
+
     if (!response.ok) {
-      cameraCards.innerHTML = buildEmptyState("Durum bilgisi alınamadı.");
+      if (cameraCards) {
+        cameraCards.innerHTML = buildEmptyState("Durum bilgisi alınamadı.");
+      }
+      updateLiveStatusBadge({ running: false });
       return;
     }
 
     const data = await response.json();
+
+    updateLiveStatusBadge(data.pipeline);
+
     const cameras = Array.isArray(data.cameras) ? data.cameras : [];
+
+    if (!cameraCards) return;
 
     if (!cameras.length) {
       cameraCards.innerHTML = buildEmptyState("Henüz aktif kamera yok.");
@@ -219,7 +241,12 @@ async function fetchStatus() {
     cameraCards.innerHTML = cameras.map(buildCard).join("");
   } catch (error) {
     console.error("status fetch error:", error);
-    cameraCards.innerHTML = buildEmptyState("Durum bilgisi alınamadı.");
+
+    if (cameraCards) {
+      cameraCards.innerHTML = buildEmptyState("Durum bilgisi alınamadı.");
+    }
+
+    updateLiveStatusBadge({ running: false });
   }
 }
 
@@ -247,7 +274,7 @@ async function startMonitoring() {
   }
 
   try {
-    startBtn.disabled = true;
+    if (startBtn) startBtn.disabled = true;
 
     const response = await fetch("/dashboard/start/", {
       method: "POST",
@@ -273,13 +300,13 @@ async function startMonitoring() {
     console.error("start error:", error);
     alert("Başlatma isteği gönderilemedi.");
   } finally {
-    startBtn.disabled = false;
+    if (startBtn) startBtn.disabled = false;
   }
 }
 
 async function stopMonitoring() {
   try {
-    stopBtn.disabled = true;
+    if (stopBtn) stopBtn.disabled = true;
 
     const response = await fetch("/dashboard/stop/", {
       method: "POST",
@@ -303,20 +330,33 @@ async function stopMonitoring() {
     console.error("stop error:", error);
     alert("Durdurma isteği gönderilemedi.");
   } finally {
-    stopBtn.disabled = false;
+    if (stopBtn) stopBtn.disabled = false;
   }
 }
 
-addRowBtn.addEventListener("click", () => createRow());
+if (addRowBtn) {
+  addRowBtn.addEventListener("click", () => createRow());
+}
 
-clearRowsBtn.addEventListener("click", () => {
-  cameraRows.innerHTML = "";
+if (clearRowsBtn) {
+  clearRowsBtn.addEventListener("click", () => {
+    if (!cameraRows) return;
+    cameraRows.innerHTML = "";
+    createRow();
+  });
+}
+
+if (startBtn) {
+  startBtn.addEventListener("click", startMonitoring);
+}
+
+if (stopBtn) {
+  stopBtn.addEventListener("click", stopMonitoring);
+}
+
+if (rowTemplate && cameraRows && !document.querySelector(".camera-row")) {
   createRow();
-});
+}
 
-startBtn.addEventListener("click", startMonitoring);
-stopBtn.addEventListener("click", stopMonitoring);
-
-createRow();
 fetchStatus();
 setInterval(fetchStatus, 2000);

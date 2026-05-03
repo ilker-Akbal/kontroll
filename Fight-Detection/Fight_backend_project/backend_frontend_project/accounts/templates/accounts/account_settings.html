@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+
+{% block title %}Hesabım{% endblock %}
+
+{% block content %}
+<div class="account-page">
+  <section class="account-hero">
+    <div>
+      <span class="account-hero__eyebrow">Hesap Yönetimi</span>
+      <h1>Hesabım</h1>
+      <p>
+        Kullanıcı adı, e-posta, fakülte ve şifre bilgilerinizi bu ekrandan
+        güvenli şekilde güncelleyebilirsiniz.
+      </p>
+    </div>
+
+    <div class="account-hero__user">
+      <div class="account-hero__avatar">
+        {{ request.user.username|first|upper }}
+      </div>
+
+      <div>
+        <span>Aktif kullanıcı</span>
+        <strong>{{ request.user.username }}</strong>
+
+        {% if profile.faculty %}
+        <small>{{ profile.faculty }}</small>
+        {% else %}
+        <small>Fakülte bilgisi yok</small>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
+  <div class="account-grid">
+    <section class="account-panel">
+      
+ <section class="account-panel">
+  <div class="account-panel__header">
+    <h2>Hesap Bilgileri</h2>
+    <p>Hesabınıza ait temel bilgileri görüntüleyebilirsiniz.</p>
+  </div>
+
+  <div class="account-readonly-form">
+    <div class="account-readonly-field">
+      <label>Kullanıcı Adı</label>
+      <div class="account-readonly-value">
+        {{ request.user.username }}
+      </div>
+    </div>
+
+    <div class="account-readonly-field">
+      <label>E-posta</label>
+      <div class="account-readonly-value">
+        {{ request.user.email }}
+      </div>
+    </div>
+
+    <div class="account-readonly-field">
+      <label>Fakülte</label>
+      <div class="account-readonly-value">
+        {{ profile.faculty|default:"Belirtilmemiş" }}
+      </div>
+    </div>
+
+    <div class="account-readonly-note">
+      Bu bilgiler kullanıcı tarafından değiştirilemez.
+    </div>
+  </div>
+</section>
+    </section>
+
+    <section class="account-panel">
+      <div class="account-panel__header">
+        <h2>Şifre Güncelleme</h2>
+        <p>
+          Şifrenizi değiştirmek için mevcut şifrenizi doğrulayın ve yeni
+          şifrenizi belirleyin.
+        </p>
+      </div>
+
+      <form method="post" class="account-form">
+        {% csrf_token %}
+
+        <div class="account-field">
+          <label for="{{ password_form.old_password.id_for_label }}">Mevcut Şifre</label>
+          {{ password_form.old_password }}
+
+          {% for error in password_form.old_password.errors %}
+          <small class="account-error">{{ error }}</small>
+          {% endfor %}
+        </div>
+
+        <div class="account-field">
+          <label for="{{ password_form.new_password1.id_for_label }}">Yeni Şifre</label>
+          {{ password_form.new_password1 }}
+
+          {% for error in password_form.new_password1.errors %}
+          <small class="account-error">{{ error }}</small>
+          {% endfor %}
+        </div>
+
+        <div class="account-field">
+          <label for="{{ password_form.new_password2.id_for_label }}">Yeni Şifre Tekrar</label>
+          {{ password_form.new_password2 }}
+
+          {% for error in password_form.new_password2.errors %}
+          <small class="account-error">{{ error }}</small>
+          {% endfor %}
+        </div>
+
+        {% if password_form.non_field_errors %}
+        <div class="account-form-errors">
+          {{ password_form.non_field_errors }}
+        </div>
+        {% endif %}
+
+        <div class="account-password-note">
+          Şifre değiştirildikten sonra oturumunuz açık kalır. Tekrar giriş
+          yapmanız gerekmez.
+        </div>
+
+        <div class="account-actions">
+          <button type="submit" name="password_submit" class="account-primary-btn">
+            Şifreyi Güncelle
+          </button>
+        </div>
+      </form>
+    </section>
+  </div>
+</div>
+{% endblock %}
