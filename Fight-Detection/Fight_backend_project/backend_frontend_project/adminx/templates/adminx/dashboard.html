@@ -1,128 +1,249 @@
-{% extends "adminx/base.html" %} {% block title %}Admin Dashboard{% endblock %}
-{% block page_title %}Admin Dashboard{% endblock %} {% block page_desc %}Sistem
-özeti, kullanıcı onayları, kamera durumu ve operasyon grafikleri{% endblock %}
+{% extends "adminx/base.html" %}
+
+{% block title %}Admin Dashboard{% endblock %}
+{% block page_title %}Admin Dashboard{% endblock %}
+{% block page_desc %}
+Kavga tespiti, hız tespiti, kamera durumu, kullanıcı onayları ve operasyon kayıtları
+{% endblock %}
+
 {% block extra_css %}
 <style>
   .admin-dashboard-grid {
     display: grid;
-    gap: 20px;
+    gap: 22px;
   }
 
-  .admin-control-card {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 24px;
-    padding: 24px;
-    border-radius: 26px;
-    border: 1px solid var(--stroke);
-    background: linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.98),
-      rgba(248, 251, 255, 0.94)
-    );
-    box-shadow: var(--shadow-md);
-  }
-
-  .admin-control-card__left {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    min-width: 0;
-  }
-
-  .admin-control-card__icon {
-    width: 54px;
-    height: 54px;
+  .admin-messages {
     display: grid;
-    place-items: center;
-    flex: 0 0 auto;
-    border-radius: 18px;
-    background: linear-gradient(135deg, #1677ff, #0ea5e9);
-    color: #ffffff;
-    font-size: 22px;
-    box-shadow: 0 16px 32px rgba(22, 119, 255, 0.22);
+    gap: 10px;
   }
 
-  .admin-control-card h3 {
-    margin: 0;
-    color: var(--text);
-    font-size: 22px;
-    font-weight: 850;
-    letter-spacing: -0.04em;
-  }
-
-  .admin-control-card p {
-    margin: 8px 0 0;
-    max-width: 760px;
-    color: var(--text-soft);
-    font-size: 14px;
-    line-height: 1.6;
-  }
-
-  .admin-control-card__actions {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex: 0 0 auto;
-  }
-
-  .admin-control-btn {
-    min-height: 48px;
-    padding: 0 20px;
-    border: 0;
+  .admin-message {
+    padding: 13px 15px;
     border-radius: 16px;
-    color: #ffffff;
-    font-size: 14px;
-    font-weight: 850;
-    cursor: pointer;
-    box-shadow: var(--shadow-sm);
-  }
-
-  .admin-control-btn:disabled {
-    opacity: 0.65;
-    cursor: not-allowed;
-  }
-
-  .admin-control-btn--start {
-    background: linear-gradient(135deg, #22c55e, #16a34a);
-  }
-
-  .admin-control-btn--stop {
-    background: linear-gradient(135deg, #ef4444, #dc2626);
-  }
-
-  .admin-control-btn:hover:not(:disabled) {
-    filter: brightness(1.03);
-  }
-
-  .admin-control-message {
-    display: none;
-    margin-top: 14px;
-    padding: 12px 14px;
-    border-radius: 16px;
+    font-size: 13px;
+    font-weight: 800;
     border: 1px solid var(--stroke);
     background: #ffffff;
     color: var(--text-soft);
-    font-size: 13px;
-    font-weight: 700;
-    line-height: 1.5;
   }
 
-  .admin-control-message.is-visible {
-    display: block;
-  }
-
-  .admin-control-message.is-success {
+  .admin-message.success {
     color: #166534;
     background: var(--success-soft);
     border-color: rgba(22, 163, 74, 0.16);
   }
 
-  .admin-control-message.is-error {
+  .admin-message.error {
     color: #991b1b;
     background: var(--danger-soft);
     border-color: rgba(220, 38, 38, 0.16);
+  }
+
+  .admin-message.warning {
+    color: #92400e;
+    background: #fffbeb;
+    border-color: rgba(217, 119, 6, 0.18);
+  }
+
+  .admin-message.info {
+    color: #1d4ed8;
+    background: #eff6ff;
+    border-color: rgba(37, 99, 235, 0.18);
+  }
+
+  .module-control-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+  }
+
+  .module-control-card {
+    position: relative;
+    overflow: hidden;
+    display: grid;
+    gap: 18px;
+    padding: 24px;
+    border-radius: 28px;
+    border: 1px solid var(--stroke);
+    background: linear-gradient(180deg, #ffffff, #f8fbff);
+    box-shadow: var(--shadow-md);
+  }
+
+  .module-control-card::after {
+    content: "";
+    position: absolute;
+    right: -58px;
+    top: -58px;
+    width: 180px;
+    height: 180px;
+    border-radius: 999px;
+    background: radial-gradient(circle, rgba(22, 119, 255, 0.13), transparent 68%);
+    pointer-events: none;
+  }
+
+  .module-control-card--speed::after {
+    background: radial-gradient(circle, rgba(249, 115, 22, 0.17), transparent 68%);
+  }
+
+  .module-control-card__head {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+
+  .module-control-card__icon {
+    width: 58px;
+    height: 58px;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    border-radius: 20px;
+    color: #ffffff;
+    font-size: 23px;
+    font-weight: 950;
+    background: linear-gradient(135deg, #1677ff, #0ea5e9);
+    box-shadow: 0 16px 32px rgba(22, 119, 255, 0.22);
+  }
+
+  .module-control-card--speed .module-control-card__icon {
+    background: linear-gradient(135deg, #f97316, #ea580c);
+    box-shadow: 0 16px 32px rgba(249, 115, 22, 0.22);
+  }
+
+  .module-control-card h3 {
+    margin: 0;
+    color: var(--text);
+    font-size: 22px;
+    font-weight: 950;
+    letter-spacing: -0.04em;
+  }
+
+  .module-control-card p {
+    margin: 8px 0 0;
+    color: var(--text-soft);
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .module-control-card__meta {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .module-control-mini {
+    padding: 12px 14px;
+    border-radius: 17px;
+    border: 1px solid var(--stroke);
+    background: #ffffff;
+    box-shadow: var(--shadow-sm);
+  }
+
+  .module-control-mini span {
+    display: block;
+    color: var(--text-faint);
+    font-size: 10px;
+    font-weight: 950;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .module-control-mini strong {
+    display: block;
+    margin-top: 5px;
+    color: var(--text);
+    font-size: 19px;
+    font-weight: 950;
+    letter-spacing: -0.04em;
+  }
+
+  .module-control-card__actions {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+
+  .module-control-btn {
+    min-height: 46px;
+    padding: 0 17px;
+    border: 0;
+    border-radius: 15px;
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 950;
+    cursor: pointer;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: 0.14s ease;
+  }
+
+  .module-control-btn:hover {
+    filter: brightness(1.03);
+    transform: translateY(-1px);
+  }
+
+  .module-control-btn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .module-control-btn--start {
+    background: linear-gradient(135deg, #22c55e, #16a34a);
+    box-shadow: 0 12px 24px rgba(22, 163, 74, 0.18);
+  }
+
+  .module-control-btn--stop {
+    background: linear-gradient(135deg, #ef4444, #dc2626);
+    box-shadow: 0 12px 24px rgba(220, 38, 38, 0.18);
+  }
+
+  .module-control-btn--open {
+    background: linear-gradient(135deg, #1677ff, #0ea5e9);
+    box-shadow: 0 12px 24px rgba(22, 119, 255, 0.18);
+  }
+
+  .module-control-card--speed .module-control-btn--open {
+    background: linear-gradient(135deg, #f97316, #ea580c);
+    box-shadow: 0 12px 24px rgba(249, 115, 22, 0.18);
+  }
+
+  .module-control-message {
+    position: relative;
+    z-index: 1;
+    display: none;
+    padding: 12px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--stroke);
+    color: var(--text-soft);
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.5;
+  }
+
+  .module-control-message.is-visible {
+    display: block;
+  }
+
+  .module-control-message.is-success {
+    color: #166534;
+    background: var(--success-soft);
+    border-color: rgba(22, 163, 74, 0.18);
+  }
+
+  .module-control-message.is-error {
+    color: #991b1b;
+    background: var(--danger-soft);
+    border-color: rgba(220, 38, 38, 0.18);
   }
 
   .admin-metrics-grid {
@@ -134,7 +255,7 @@
   .admin-metric-card {
     position: relative;
     overflow: hidden;
-    min-height: 150px;
+    min-height: 154px;
     padding: 22px;
     border-radius: 24px;
     border: 1px solid var(--stroke);
@@ -150,11 +271,16 @@
     width: 126px;
     height: 126px;
     border-radius: 999px;
-    background: radial-gradient(
-      circle,
-      rgba(22, 119, 255, 0.12),
-      transparent 68%
-    );
+    background: radial-gradient(circle, rgba(22, 119, 255, 0.12), transparent 68%);
+    pointer-events: none;
+  }
+
+  .admin-metric-card--speed::after {
+    background: radial-gradient(circle, rgba(249, 115, 22, 0.16), transparent 68%);
+  }
+
+  .admin-metric-card--danger::after {
+    background: radial-gradient(circle, rgba(220, 38, 38, 0.12), transparent 68%);
   }
 
   .admin-metric-card span {
@@ -162,7 +288,7 @@
     margin-bottom: 10px;
     color: var(--text-faint);
     font-size: 12px;
-    font-weight: 900;
+    font-weight: 950;
     letter-spacing: 0.1em;
     text-transform: uppercase;
   }
@@ -171,7 +297,7 @@
     display: block;
     color: var(--text);
     font-size: clamp(30px, 3vw, 42px);
-    font-weight: 900;
+    font-weight: 950;
     letter-spacing: -0.05em;
     line-height: 1;
   }
@@ -194,11 +320,7 @@
     padding: 22px;
     border-radius: 24px;
     border: 1px solid var(--stroke);
-    background: linear-gradient(
-      180deg,
-      rgba(255, 255, 255, 0.96),
-      rgba(255, 255, 255, 0.92)
-    );
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(255, 255, 255, 0.92));
     box-shadow: var(--shadow-md);
   }
 
@@ -210,7 +332,7 @@
     margin: 0;
     color: var(--text);
     font-size: 20px;
-    font-weight: 850;
+    font-weight: 950;
     letter-spacing: -0.035em;
   }
 
@@ -231,31 +353,31 @@
   }
 
   @media (max-width: 1180px) {
-    .admin-control-card {
-      align-items: stretch;
-      flex-direction: column;
-    }
-
-    .admin-control-card__actions {
-      width: 100%;
-    }
-
-    .admin-control-btn {
-      width: 100%;
+    .module-control-grid,
+    .admin-chart-grid {
+      grid-template-columns: 1fr;
     }
 
     .admin-metrics-grid {
       grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-
-    .admin-chart-grid {
-      grid-template-columns: 1fr;
-    }
   }
 
   @media (max-width: 680px) {
-    .admin-control-card__actions {
+    .module-control-card__head {
       flex-direction: column;
+    }
+
+    .module-control-card__meta {
+      grid-template-columns: 1fr;
+    }
+
+    .module-control-card__actions {
+      flex-direction: column;
+    }
+
+    .module-control-btn {
+      width: 100%;
     }
 
     .admin-metrics-grid {
@@ -268,43 +390,112 @@
     }
   }
 </style>
-{% endblock %} {% block content %}
+{% endblock %}
+
+{% block content %}
 <div class="admin-dashboard-grid">
-  <section class="admin-control-card">
-    <div>
-      <div class="admin-control-card__left">
-        <div class="admin-control-card__icon">▶</div>
+  {% if messages %}
+  <section class="admin-messages">
+    {% for message in messages %}
+    <div class="admin-message {{ message.tags }}">
+      {{ message }}
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+
+  <section class="module-control-grid">
+    <article class="module-control-card">
+      <div class="module-control-card__head">
+        <div class="module-control-card__icon">⚡</div>
 
         <div>
           <h3>Kavga Tespit Kontrolü</h3>
           <p>
-            Bu bölümden kavga tespit pipeline sürecini başlatabilir veya
-            durdurabilirsiniz. Sistem durumu yukarıdaki canlı durum kartında
-            otomatik güncellenir.
+            Kavga tespit pipeline sürecini başlat, durdur ve güvenlik ekranındaki
+            canlı olay akışını yönet.
           </p>
         </div>
       </div>
 
-      <div id="admin-control-message" class="admin-control-message"></div>
-    </div>
+      <div class="module-control-card__meta">
+        <div class="module-control-mini">
+          <span>Aktif Kamera</span>
+          <strong>{{ fight_camera_count|default:"0" }}</strong>
+        </div>
 
-    <div class="admin-control-card__actions">
-      <button
-        type="button"
-        class="admin-control-btn admin-control-btn--start"
-        id="admin-start-system-btn"
-      >
-        Sistemi Başlat
-      </button>
+        <div class="module-control-mini">
+          <span>Kavga Kaydı</span>
+          <strong>{{ fight_incident_count|default:"0" }}</strong>
+        </div>
+      </div>
 
-      <button
-        type="button"
-        class="admin-control-btn admin-control-btn--stop"
-        id="admin-stop-system-btn"
-      >
-        Sistemi Durdur
-      </button>
-    </div>
+      <div class="module-control-card__actions">
+        <button type="button" class="module-control-btn module-control-btn--start" id="admin-fight-start-btn">
+          Kavga Tespitini Başlat
+        </button>
+
+        <button type="button" class="module-control-btn module-control-btn--stop" id="admin-fight-stop-btn">
+          Kavga Tespitini Durdur
+        </button>
+
+        <a href="{% url 'dashboard:index' %}" class="module-control-btn module-control-btn--open">
+          Güvenlik Ekranı
+        </a>
+
+        <a href="{% url 'adminx:incident_list' %}" class="module-control-btn module-control-btn--open">
+          Kavga Kayıtları
+        </a>
+      </div>
+
+      <div id="admin-fight-control-message" class="module-control-message"></div>
+    </article>
+
+    <article class="module-control-card module-control-card--speed">
+      <div class="module-control-card__head">
+        <div class="module-control-card__icon">⌁</div>
+
+        <div>
+          <h3>Hız Tespit Kontrolü</h3>
+          <p>
+            Hız tespiti aktif kameraları çalıştır, durdur ve hız ihlali kayıtlarını
+            admin panelinden takip et.
+          </p>
+        </div>
+      </div>
+
+      <div class="module-control-card__meta">
+        <div class="module-control-mini">
+          <span>Aktif Kamera</span>
+          <strong>{{ speed_camera_count|default:"0" }}</strong>
+        </div>
+
+        <div class="module-control-mini">
+          <span>Hız Kaydı</span>
+          <strong>{{ speed_record_count|default:"0" }}</strong>
+        </div>
+      </div>
+
+      <div class="module-control-card__actions">
+        <button type="button" class="module-control-btn module-control-btn--start" id="admin-speed-start-btn">
+          Hız Tespitini Başlat
+        </button>
+
+        <button type="button" class="module-control-btn module-control-btn--stop" id="admin-speed-stop-btn">
+          Hız Tespitini Durdur
+        </button>
+
+        <a href="{% url 'speed_detection:index' %}" class="module-control-btn module-control-btn--open">
+          Hız Ekranı
+        </a>
+
+        <a href="{% url 'adminx:speed_record_list' %}" class="module-control-btn module-control-btn--open">
+          Hız Kayıtları
+        </a>
+      </div>
+
+      <div id="admin-speed-control-message" class="module-control-message"></div>
+    </article>
   </section>
 
   <div class="admin-metrics-grid">
@@ -314,6 +505,26 @@
       <p>Sistemde tanımlı toplam kamera sayısı.</p>
     </div>
 
+    <div class="admin-metric-card">
+      <span>Kavga Kamerası</span>
+      <strong>{{ fight_camera_count|default:"0" }}</strong>
+      <p>Kavga tespit modülüne bağlı aktif kameralar.</p>
+    </div>
+
+    <div class="admin-metric-card admin-metric-card--speed">
+      <span>Hız Kamerası</span>
+      <strong>{{ speed_camera_count|default:"0" }}</strong>
+      <p>Hız tespit modülüne bağlı aktif kameralar.</p>
+    </div>
+
+    <div class="admin-metric-card admin-metric-card--danger">
+      <span>Onay Bekleyen</span>
+      <strong>{{ pending_user_count|default:"0" }}</strong>
+      <p>Admin onayı bekleyen kullanıcı hesapları.</p>
+    </div>
+  </div>
+
+  <div class="admin-metrics-grid">
     <div class="admin-metric-card">
       <span>Aktif Kamera</span>
       <strong>{{ active_camera_count|default:"0" }}</strong>
@@ -327,9 +538,15 @@
     </div>
 
     <div class="admin-metric-card">
-      <span>Onay Bekleyen</span>
-      <strong>{{ pending_user_count|default:"0" }}</strong>
-      <p>Admin onayı bekleyen kullanıcı hesapları.</p>
+      <span>Kavga Kaydı</span>
+      <strong>{{ fight_incident_count|default:"0" }}</strong>
+      <p>Admin panelinde listelenen kavga olay kayıtları.</p>
+    </div>
+
+    <div class="admin-metric-card admin-metric-card--speed">
+      <span>Hız Kaydı</span>
+      <strong>{{ speed_record_count|default:"0" }}</strong>
+      <p>Admin panelinde listelenen hız ihlali kayıtları.</p>
     </div>
   </div>
 
@@ -339,6 +556,7 @@
         <h3>Kamera Durumu</h3>
         <p>Aktif ve pasif kamera dağılımı.</p>
       </div>
+
       <div class="admin-chart-box admin-chart-box--small">
         <canvas id="cameraStatusChart"></canvas>
       </div>
@@ -346,36 +564,41 @@
 
     <section class="admin-chart-card">
       <div class="admin-chart-card__head">
+        <h3>Modül Dağılımı</h3>
+        <p>Kavga ve hız tespitinde kullanılan aktif kamera sayıları.</p>
+      </div>
+
+      <div class="admin-chart-box admin-chart-box--small">
+        <canvas id="moduleChart"></canvas>
+      </div>
+    </section>
+
+    <section class="admin-chart-card">
+      <div class="admin-chart-card__head">
+        <h3>Kayıt Dağılımı</h3>
+        <p>Kavga olayları ve hız ihlali kayıtlarının karşılaştırması.</p>
+      </div>
+
+      <div class="admin-chart-box admin-chart-box--small">
+        <canvas id="recordChart"></canvas>
+      </div>
+    </section>
+
+    <section class="admin-chart-card">
+      <div class="admin-chart-card__head">
         <h3>Kullanıcı Onay Durumu</h3>
-        <p>Onaylanmış ve bekleyen kullanıcıların karşılaştırması.</p>
+        <p>Onaylı, bekleyen ve reddedilen kullanıcıların karşılaştırması.</p>
       </div>
-      <div class="admin-chart-box admin-chart-box--small">
-        <canvas id="userApprovalChart"></canvas>
-      </div>
-    </section>
 
-    <section class="admin-chart-card">
-      <div class="admin-chart-card__head">
-        <h3>Kullanıcı Rolleri</h3>
-        <p>Admin, operator ve viewer rollerinin dağılımı.</p>
-      </div>
-      <div class="admin-chart-box admin-chart-box--small">
-        <canvas id="roleChart"></canvas>
-      </div>
-    </section>
-
-    <section class="admin-chart-card">
-      <div class="admin-chart-card__head">
-        <h3>Genel Sistem Özeti</h3>
-        <p>Kamera ve kullanıcı verilerinin genel görünümü.</p>
-      </div>
       <div class="admin-chart-box">
-        <canvas id="overviewChart"></canvas>
+        <canvas id="userApprovalChart"></canvas>
       </div>
     </section>
   </div>
 </div>
-{% endblock %} {% block extra_scripts %}
+{% endblock %}
+
+{% block extra_scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
 <script>
@@ -390,13 +613,13 @@
     return "";
   }
 
-  function showAdminControlMessage(message, type) {
-    const el = document.getElementById("admin-control-message");
+  function showControlMessage(id, message, type) {
+    const el = document.getElementById(id);
 
     if (!el) return;
 
     el.textContent = message;
-    el.className = "admin-control-message is-visible";
+    el.className = "module-control-message is-visible";
 
     if (type === "success") {
       el.classList.add("is-success");
@@ -411,7 +634,7 @@
     const response = await fetch(url, {
       method: "POST",
       headers: {
-        "X-CSRFToken": getCookie("csrftoken"),
+        "X-CSRFToken": getCookie("fight_csrftoken") || getCookie("csrftoken"),
         "X-Requested-With": "XMLHttpRequest",
       },
       cache: "no-store",
@@ -429,64 +652,43 @@
     }
 
     if (!response.ok) {
-      throw new Error(
-        `HTTP ${response.status} - ${data?.error || data?.message || text || "İstek başarısız"}`,
-      );
+      throw new Error(data?.error || data?.message || text || "İstek başarısız");
     }
 
     return data;
   }
 
-  async function sendPipelineCommand(url, successMessage) {
-    const startBtn = document.getElementById("admin-start-system-btn");
-    const stopBtn = document.getElementById("admin-stop-system-btn");
+  async function sendModuleCommand(options) {
+    const buttons = options.buttonIds
+      .map(id => document.getElementById(id))
+      .filter(Boolean);
 
     try {
-      if (startBtn) startBtn.disabled = true;
-      if (stopBtn) stopBtn.disabled = true;
+      buttons.forEach(btn => btn.disabled = true);
 
-      await postPipelineCommand(url);
+      const data = await postPipelineCommand(options.url);
 
-      showAdminControlMessage(successMessage, "success");
+      showControlMessage(
+        options.messageId,
+        data?.message || options.successMessage,
+        "success"
+      );
 
       if (typeof updateAdminSystemStatus === "function") {
         updateAdminSystemStatus();
       }
     } catch (error) {
-      showAdminControlMessage(
+      showControlMessage(
+        options.messageId,
         `İşlem gerçekleştirilemedi: ${error.message}`,
-        "error",
+        "error"
       );
 
-      console.error("Pipeline kontrol hatası:", error);
+      console.error("Modül kontrol hatası:", error);
     } finally {
-      if (startBtn) startBtn.disabled = false;
-      if (stopBtn) stopBtn.disabled = false;
+      buttons.forEach(btn => btn.disabled = false);
     }
   }
-
-  document.addEventListener("DOMContentLoaded", function () {
-    const startBtn = document.getElementById("admin-start-system-btn");
-    const stopBtn = document.getElementById("admin-stop-system-btn");
-
-    if (startBtn) {
-      startBtn.addEventListener("click", function () {
-        sendPipelineCommand(
-          "{% url 'dashboard:start_detection' %}",
-          "Kavga tespit sistemi başlatıldı.",
-        );
-      });
-    }
-
-    if (stopBtn) {
-      stopBtn.addEventListener("click", function () {
-        sendPipelineCommand(
-          "{% url 'dashboard:stop_detection' %}",
-          "Kavga tespit sistemi durduruldu.",
-        );
-      });
-    }
-  });
 
   const chartTheme = {
     grid: "rgba(148, 163, 184, 0.22)",
@@ -496,6 +698,7 @@
     success: "#16a34a",
     danger: "#dc2626",
     warning: "#d97706",
+    speed: "#f97316",
     slate: "#64748b",
   };
 
@@ -504,19 +707,21 @@
     activeCameraCount: Number("{{ active_camera_count|default:'0' }}"),
     passiveCameraCount: Number("{{ passive_camera_count|default:'0' }}"),
 
-    totalUserCount: Number("{{ total_user_count|default:'0' }}"),
+    fightCameraCount: Number("{{ fight_camera_count|default:'0' }}"),
+    speedCameraCount: Number("{{ speed_camera_count|default:'0' }}"),
+
+    fightIncidentCount: Number("{{ fight_incident_count|default:'0' }}"),
+    speedRecordCount: Number("{{ speed_record_count|default:'0' }}"),
+
     approvedUserCount: Number("{{ approved_user_count|default:'0' }}"),
     pendingUserCount: Number("{{ pending_user_count|default:'0' }}"),
-
-    adminUserCount: Number("{{ admin_user_count|default:'0' }}"),
-    operatorUserCount: Number("{{ operator_user_count|default:'0' }}"),
-    viewerUserCount: Number("{{ viewer_user_count|default:'0' }}"),
+    rejectedUserCount: Number("{{ rejected_user_count|default:'0' }}"),
   };
 
   function createDoughnutChart(canvasId, labels, values, colors) {
     const el = document.getElementById(canvasId);
 
-    if (!el) return;
+    if (!el || typeof Chart === "undefined") return;
 
     new Chart(el, {
       type: "doughnut",
@@ -558,7 +763,7 @@
   function createBarChart(canvasId, labels, values, colors) {
     const el = document.getElementById(canvasId);
 
-    if (!el) return;
+    if (!el || typeof Chart === "undefined") return;
 
     new Chart(el, {
       type: "bar",
@@ -611,6 +816,55 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    const fightStart = document.getElementById("admin-fight-start-btn");
+    const fightStop = document.getElementById("admin-fight-stop-btn");
+    const speedStart = document.getElementById("admin-speed-start-btn");
+    const speedStop = document.getElementById("admin-speed-stop-btn");
+
+    if (fightStart) {
+      fightStart.addEventListener("click", function () {
+        sendModuleCommand({
+          url: "{% url 'dashboard:start_detection' %}",
+          successMessage: "Kavga tespit sistemi başlatıldı.",
+          messageId: "admin-fight-control-message",
+          buttonIds: ["admin-fight-start-btn", "admin-fight-stop-btn"],
+        });
+      });
+    }
+
+    if (fightStop) {
+      fightStop.addEventListener("click", function () {
+        sendModuleCommand({
+          url: "{% url 'dashboard:stop_detection' %}",
+          successMessage: "Kavga tespit sistemi durduruldu.",
+          messageId: "admin-fight-control-message",
+          buttonIds: ["admin-fight-start-btn", "admin-fight-stop-btn"],
+        });
+      });
+    }
+
+    if (speedStart) {
+      speedStart.addEventListener("click", function () {
+        sendModuleCommand({
+          url: "{% url 'speed_detection:start' %}",
+          successMessage: "Hız tespit sistemi başlatıldı.",
+          messageId: "admin-speed-control-message",
+          buttonIds: ["admin-speed-start-btn", "admin-speed-stop-btn"],
+        });
+      });
+    }
+
+    if (speedStop) {
+      speedStop.addEventListener("click", function () {
+        sendModuleCommand({
+          url: "{% url 'speed_detection:stop' %}",
+          successMessage: "Hız tespit sistemi durduruldu.",
+          messageId: "admin-speed-control-message",
+          buttonIds: ["admin-speed-start-btn", "admin-speed-stop-btn"],
+        });
+      });
+    }
+
     createDoughnutChart(
       "cameraStatusChart",
       ["Aktif Kamera", "Pasif Kamera"],
@@ -618,47 +872,29 @@
       [chartTheme.success, chartTheme.danger],
     );
 
+    createDoughnutChart(
+      "moduleChart",
+      ["Kavga Kamerası", "Hız Kamerası"],
+      [dashboardData.fightCameraCount, dashboardData.speedCameraCount],
+      [chartTheme.primary, chartTheme.speed],
+    );
+
+    createBarChart(
+      "recordChart",
+      ["Kavga Kaydı", "Hız Kaydı"],
+      [dashboardData.fightIncidentCount, dashboardData.speedRecordCount],
+      [chartTheme.primary, chartTheme.speed],
+    );
+
     createBarChart(
       "userApprovalChart",
-      ["Onaylı", "Bekleyen"],
-      [dashboardData.approvedUserCount, dashboardData.pendingUserCount],
-      [chartTheme.success, chartTheme.warning],
-    );
-
-    createDoughnutChart(
-      "roleChart",
-      ["Admin", "Operator", "Viewer"],
+      ["Onaylı", "Bekleyen", "Reddedilen"],
       [
-        dashboardData.adminUserCount,
-        dashboardData.operatorUserCount,
-        dashboardData.viewerUserCount,
-      ],
-      [chartTheme.primary, chartTheme.cyan, chartTheme.slate],
-    );
-
-    createBarChart(
-      "overviewChart",
-      [
-        "Toplam Kamera",
-        "Aktif Kamera",
-        "Pasif Kamera",
-        "Toplam Kullanıcı",
-        "Onay Bekleyen",
-      ],
-      [
-        dashboardData.cameraCount,
-        dashboardData.activeCameraCount,
-        dashboardData.passiveCameraCount,
-        dashboardData.totalUserCount,
+        dashboardData.approvedUserCount,
         dashboardData.pendingUserCount,
+        dashboardData.rejectedUserCount,
       ],
-      [
-        chartTheme.primary,
-        chartTheme.success,
-        chartTheme.danger,
-        chartTheme.cyan,
-        chartTheme.warning,
-      ],
+      [chartTheme.success, chartTheme.warning, chartTheme.danger],
     );
   });
 </script>

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import mimetypes
+import re
 import time
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
-from django.http import FileResponse, Http404, JsonResponse, StreamingHttpResponse
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils.timezone import now
 from django.views.decorators.cache import never_cache
@@ -23,7 +24,6 @@ from services.pipeline_bridge.fight_runner import start_pipeline, stop_pipeline
 from services.pipeline_bridge.report_reader import build_dashboard_report
 from services.pipeline_bridge.runtime_state import runtime
 from streams.models import Camera
-
 MAX_HISTORY_RUNS = 10
 MAX_HISTORY_STAGE3 = 200
 MAX_HISTORY_INCIDENTS = 200
@@ -68,7 +68,7 @@ def _camera_queryset_for_user(user, active_only=False):
     qs = Camera.objects.all()
 
     if active_only:
-        qs = qs.filter(is_active=True)
+        qs = qs.filter(is_active=True, use_fight_detection=True)
 
     if _is_admin_user(user):
         return qs.order_by("-created_at")
@@ -165,7 +165,11 @@ def _serialize_camera(camera):
 
 
 def _active_cameras_qs():
-    return Camera.objects.filter(is_active=True).order_by("-created_at")
+    return (
+        Camera.objects
+        .filter(is_active=True, use_fight_detection=True)
+        .order_by("-created_at")
+    )
 
 
 def _active_sources():
@@ -196,6 +200,22 @@ def _run_dirs(limit: int = MAX_HISTORY_RUNS) -> list[Path]:
     dirs.sort(key=lambda p: p.stat().st_mtime, reverse=True)
 
     return dirs[:limit]
+
+
+def _safe_clip_name(value: str) -> str:
+    """
+    Incident clip URL'sinde tam Windows/Linux path değil, sadece güvenli dosya adı kullanılmalı.
+    Örnek:
+      C:\...\incidents\cam002_incident_000001.mp4 -> cam002_incident_000001.mp4
+      /home/.../incidents/cam002_incident_000001.mp4 -> cam002_incident_000001.mp4
+    """
+    s = str(value or "").strip().replace("\\", "/")
+    name = Path(s).name
+
+    if not name or name in {".", ".."}:
+        return ""
+
+    return name
 
 
 def _format_ts(value):
@@ -238,6 +258,7 @@ def _normalize_report(report: dict) -> dict:
     for row in report.get("recent_incidents", []):
         row["start_ts"] = _format_ts(row.get("start_ts"))
         row["end_ts"] = _format_ts(row.get("end_ts"))
+        row["clip_name"] = _safe_clip_name(row.get("clip_name") or row.get("clip_path"))
 
     return report
 
@@ -510,6 +531,7 @@ def _report_signature(payload: dict) -> str:
                 x.get("part_count"),
                 x.get("final_label"),
                 x.get("clip_path"),
+                x.get("clip_name"),
             )
             for x in payload.get("incidents", [])
         ],
@@ -949,6 +971,11 @@ def preview_image(request, camera_id):
 
 
 def _can_access_incident_clip(user, run_name, clip_name) -> bool:
+    safe_clip_name = _safe_clip_name(clip_name)
+
+    if not safe_clip_name:
+        return False
+
     if _is_admin_user(user):
         return True
 
@@ -957,21 +984,65 @@ def _can_access_incident_clip(user, run_name, clip_name) -> bool:
 
     for row in report.get("recent_incidents", []):
         row_run_name = str(row.get("run_name") or "")
-        row_clip_path = str(row.get("clip_path") or "")
-        row_clip_name = Path(row_clip_path).name
+        row_clip_name = _safe_clip_name(row.get("clip_name") or row.get("clip_path"))
         row_camera_id = row.get("camera_id")
 
         if (
             row_run_name == run_name
             and row_camera_id in allowed_camera_ids
-            and (
-                row_clip_path == clip_name
-                or row_clip_name == clip_name
-            )
+            and row_clip_name == safe_clip_name
         ):
             return True
 
     return False
+
+
+def _range_file_response(request, file_path: Path, content_type: str):
+    """
+    HTML5 video player için Range request desteği.
+    Chrome/Edge/Safari video preload ve seek sırasında Range ister.
+    """
+    file_size = file_path.stat().st_size
+    range_header = request.headers.get("Range", "").strip()
+
+    if not range_header:
+        response = FileResponse(open(file_path, "rb"), content_type=content_type)
+        response["Content-Length"] = str(file_size)
+        response["Accept-Ranges"] = "bytes"
+        response["Cache-Control"] = "no-cache"
+        return response
+
+    match = re.match(r"bytes=(\d+)-(\d*)", range_header)
+
+    if not match:
+        response = FileResponse(open(file_path, "rb"), content_type=content_type)
+        response["Content-Length"] = str(file_size)
+        response["Accept-Ranges"] = "bytes"
+        response["Cache-Control"] = "no-cache"
+        return response
+
+    start = int(match.group(1))
+    end_raw = match.group(2)
+    end = int(end_raw) if end_raw else file_size - 1
+
+    if start >= file_size:
+        response = HttpResponse(status=416)
+        response["Content-Range"] = f"bytes */{file_size}"
+        return response
+
+    end = min(end, file_size - 1)
+    length = end - start + 1
+
+    with open(file_path, "rb") as f:
+        f.seek(start)
+        data = f.read(length)
+
+    response = HttpResponse(data, status=206, content_type=content_type)
+    response["Content-Length"] = str(length)
+    response["Content-Range"] = f"bytes {start}-{end}/{file_size}"
+    response["Accept-Ranges"] = "bytes"
+    response["Cache-Control"] = "no-cache"
+    return response
 
 
 @never_cache
@@ -980,15 +1051,20 @@ def _can_access_incident_clip(user, run_name, clip_name) -> bool:
 def incident_video(request, run_name, clip_name):
     _make_session_readonly(request)
 
-    if not _can_access_incident_clip(request.user, run_name, clip_name):
+    safe_clip_name = _safe_clip_name(clip_name)
+
+    if not safe_clip_name:
+        raise Http404("Incident clip bulunamadı")
+
+    if not _can_access_incident_clip(request.user, run_name, safe_clip_name):
         raise Http404("Incident clip bulunamadı")
 
     clip_path = (
         Path(settings.MEDIA_ROOT)
         / "pipeline_runs"
-        / run_name
+        / str(run_name)
         / "incidents"
-        / clip_name
+        / safe_clip_name
     )
 
     if not clip_path.exists() or not clip_path.is_file():
@@ -999,13 +1075,7 @@ def incident_video(request, run_name, clip_name):
     if not content_type:
         content_type = "video/mp4"
 
-    response = FileResponse(open(clip_path, "rb"), content_type=content_type)
-    response["Content-Length"] = clip_path.stat().st_size
-    response["Accept-Ranges"] = "bytes"
-    response["Cache-Control"] = "no-cache"
-
-    return response
-
+    return _range_file_response(request, clip_path, content_type)
 
 def _make_session_readonly(request):
     try:

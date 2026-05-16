@@ -1,0 +1,330 @@
+{% extends "adminx/base.html" %}
+
+{% block title %}
+  Fakülte / Mevki Yönetimi
+{% endblock %}
+
+{% block page_title %}
+  Fakülte / Mevki Yönetimi
+{% endblock %}
+
+{% block page_desc %}
+  Kamera, kullanıcı ve olay kayıtlarında kullanılacak fakülte/mevki bilgisini buradan yönetebilirsin.
+{% endblock %}
+
+{% block page_actions %}
+  <a href="{% url 'adminx:camera_create' %}" class="btn secondary">
+    Kamera Ekle
+  </a>
+{% endblock %}
+
+{% block extra_css %}
+<style>
+  .faculty-status-box {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 12px 14px;
+    border: 1px solid #dbe7f2;
+    border-radius: 16px;
+    background: linear-gradient(180deg, #ffffff, #f8fbff);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+  }
+
+  .faculty-status-info {
+    display: grid;
+    gap: 3px;
+    min-width: 0;
+  }
+
+  .faculty-status-info strong {
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: -0.01em;
+  }
+
+  .faculty-status-info span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+
+  .faculty-switch {
+    position: relative;
+    width: 48px;
+    height: 26px;
+    flex: 0 0 auto;
+    display: inline-block;
+  }
+
+  .faculty-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .faculty-switch-slider {
+    position: absolute;
+    inset: 0;
+    cursor: pointer;
+    border-radius: 999px;
+    background: #cbd5e1;
+    transition: background 0.18s ease, box-shadow 0.18s ease;
+    box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.08);
+  }
+
+  .faculty-switch-slider::before {
+    content: "";
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    left: 3px;
+    top: 3px;
+    border-radius: 999px;
+    background: #ffffff;
+    transition: transform 0.18s ease;
+    box-shadow: 0 4px 10px rgba(15, 23, 42, 0.18);
+  }
+
+  .faculty-switch input:checked + .faculty-switch-slider {
+    background: linear-gradient(135deg, #16a34a, #22c55e);
+  }
+
+  .faculty-switch input:checked + .faculty-switch-slider::before {
+    transform: translateX(22px);
+  }
+
+  .faculty-switch input:focus + .faculty-switch-slider {
+    box-shadow:
+      inset 0 0 0 1px rgba(15, 23, 42, 0.08),
+      0 0 0 4px rgba(34, 197, 94, 0.14);
+  }
+
+  .faculty-active-errors {
+    margin-top: 8px;
+    color: #dc2626;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .faculty-action-btn {
+    min-height: 36px !important;
+    padding: 0 12px !important;
+    border-radius: 12px !important;
+    font-size: 12px !important;
+    box-shadow: none !important;
+  }
+
+  .faculty-toggle-form {
+    margin: 0;
+  }
+
+  .faculty-table-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="content-stack">
+
+  <div class="stats-grid">
+    <div class="card stat stat--purple">
+      <h3>Toplam Kayıt</h3>
+      <div class="stat__value">{{ total_count }}</div>
+      <div class="stat__meta">Tanımlı fakülte / mevki sayısı</div>
+    </div>
+
+    <div class="card stat stat--blue">
+      <h3>Aktif</h3>
+      <div class="stat__value">{{ active_count }}</div>
+      <div class="stat__meta">Kullanıma açık kayıt</div>
+    </div>
+
+    <div class="card stat stat--mint">
+      <h3>Pasif</h3>
+      <div class="stat__value">{{ passive_count }}</div>
+      <div class="stat__meta">Geçici olarak kapalı kayıt</div>
+    </div>
+  </div>
+
+  <div class="grid-3" style="grid-template-columns: minmax(340px, 0.8fr) minmax(0, 1.2fr); align-items: start;">
+
+    <section class="card">
+      <div class="section-head">
+        <div>
+          {% if editing_item %}
+            <h2>Kaydı Düzenle</h2>
+            <p>{{ editing_item.name }} kaydını güncelliyorsun.</p>
+          {% else %}
+            <h2>Yeni Fakülte / Mevki Ekle</h2>
+            <p>Yeni kamera ve kullanıcı tanımlarında kullanılacak fakülte/mevki bilgisini ekle.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <form method="post" class="form-grid">
+        {% csrf_token %}
+
+        {% if form.non_field_errors %}
+          <div class="danger-box">
+            {{ form.non_field_errors }}
+          </div>
+        {% endif %}
+
+        <div class="field">
+          <label for="{{ form.name.id_for_label }}">Fakülte / Mevki Adı</label>
+          {{ form.name }}
+
+          {% if form.name.errors %}
+            <div class="danger-box">{{ form.name.errors }}</div>
+          {% endif %}
+        </div>
+
+        <div class="field">
+          <label for="{{ form.description.id_for_label }}">Açıklama</label>
+          {{ form.description }}
+
+          {% if form.description.errors %}
+            <div class="danger-box">{{ form.description.errors }}</div>
+          {% endif %}
+        </div>
+
+        <div class="field">
+          <div class="faculty-status-box">
+            <div class="faculty-status-info">
+              <strong>Kayıt Durumu</strong>
+              <span>Aktif olduğunda kamera ve kullanıcı seçimlerinde görünür.</span>
+            </div>
+
+            <label class="faculty-switch" for="{{ form.is_active.id_for_label }}">
+              {{ form.is_active }}
+              <span class="faculty-switch-slider"></span>
+            </label>
+          </div>
+
+          {% if form.is_active.errors %}
+            <div class="faculty-active-errors">
+              {{ form.is_active.errors }}
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="actions">
+          <button type="submit" class="btn">
+            {% if editing_item %}
+              Güncelle
+            {% else %}
+              Kaydet
+            {% endif %}
+          </button>
+
+          {% if editing_item %}
+            <a href="{% url 'adminx:faculty_location_list' %}" class="btn secondary">
+              Vazgeç
+            </a>
+          {% endif %}
+        </div>
+      </form>
+    </section>
+
+    <section class="table-card">
+      <div class="section-head" style="padding:22px 22px 0;">
+        <div>
+          <h2>Kayıtlı Fakülte / Mevkiler</h2>
+          <p>Buradaki kayıtlar kamera, kullanıcı ve olay eşleştirmelerinde kullanılır.</p>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Ad</th>
+              <th>Kod</th>
+              <th>Durum</th>
+              <th>Açıklama</th>
+              <th>İşlem</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {% for item in items %}
+              <tr>
+                <td>
+                  <strong>{{ item.name }}</strong>
+                </td>
+
+                <td>
+                  <span class="muted">{{ item.code }}</span>
+                </td>
+
+                <td>
+                  {% if item.is_active %}
+                    <span class="badge success">Aktif</span>
+                  {% else %}
+                    <span class="badge danger">Pasif</span>
+                  {% endif %}
+                </td>
+
+                <td>
+                  {% if item.description %}
+                    {{ item.description|truncatechars:80 }}
+                  {% else %}
+                    <span class="muted">-</span>
+                  {% endif %}
+                </td>
+
+                <td>
+                  <div class="faculty-table-actions">
+                    <a href="{% url 'adminx:faculty_location_edit' item.pk %}" class="btn secondary faculty-action-btn">
+                      Düzenle
+                    </a>
+
+                    <form method="post" action="{% url 'adminx:faculty_location_toggle' item.pk %}" class="faculty-toggle-form">
+                      {% csrf_token %}
+                      <button type="submit" class="btn secondary faculty-action-btn">
+                        {% if item.is_active %}
+                          Pasifleştir
+                        {% else %}
+                          Aktifleştir
+                        {% endif %}
+                      </button>
+                    </form>
+
+                    <form
+                      method="post"
+                      action="{% url 'adminx:faculty_location_delete' item.pk %}"
+                      class="faculty-toggle-form"
+                      onsubmit="return confirm('Bu fakülte/mevki kaydını silmek istediğine emin misin?');"
+                    >
+                      {% csrf_token %}
+                      <button type="submit" class="btn danger faculty-action-btn">
+                        Sil
+                      </button>
+                    </form>
+                  </div>
+                </td>
+              </tr>
+            {% empty %}
+              <tr>
+                <td colspan="5" class="empty-row">
+                  Henüz fakülte / mevki eklenmemiş.
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </div>
+</div>
+{% endblock %}

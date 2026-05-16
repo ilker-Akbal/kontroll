@@ -315,7 +315,7 @@
 
         <tbody id="incidents-table-body">
           {% for row in pipeline.recent_incidents %}
-          <tr data-row-key="{{ row.run_name|default:'-' }}__{{ row.camera_id|default:'-' }}__{{ row.incident_id|default:'-' }}__{{ row.clip_path|default:'-' }}">
+          <tr data-row-key="{{ row.run_name|default:'-' }}__{{ row.camera_id|default:'-' }}__{{ row.incident_id|default:'-' }}__{{ row.clip_name|default:'-' }}">
             <td>{{ row.camera_id }}</td>
             <td>{{ row.incident_id }}</td>
             <td>{{ row.start_ts }}</td>
@@ -324,10 +324,10 @@
               <span class="status-badge status-other">{{ row.final_label }}</span>
             </td>
             <td class="incident-clip-cell">
-              {% if row.run_name and row.clip_path %}
+              {% if row.run_name and row.clip_name %}
               <div class="incident-video-wrap">
                 <video class="incident-video" controls preload="metadata">
-                  <source src="/dashboard/incident-video/{{ row.run_name }}/{{ row.clip_path }}" type="video/mp4" />
+                  <source src="/fight-detection/dashboard/incident-video/{{ row.run_name }}/{{ row.clip_name }}/" type="video/mp4" />
                 </video>
               </div>
               {% else %}
@@ -388,14 +388,23 @@
       .replaceAll("'", "&#039;");
   }
 
-  function buildIncidentUrl(runName, clipPath) {
-    if (!runName || !clipPath) return "";
+  function clipBaseName(value) {
+    if (!value) return "";
+
+    return String(value)
+      .replaceAll("\\", "/")
+      .split("/")
+      .filter(Boolean)
+      .pop() || "";
+  }
+
+  function buildIncidentUrl(runName, clipPathOrName) {
+    if (!runName || !clipPathOrName) return "";
 
     const safeRun = encodeURIComponent(runName);
-    const safeClip = String(clipPath)
-      .split("/")
-      .map(part => encodeURIComponent(part))
-      .join("/");
+    const safeClip = encodeURIComponent(clipBaseName(clipPathOrName));
+
+    if (!safeClip) return "";
 
     return `/dashboard/incident-video/${safeRun}/${safeClip}/`;
   }
@@ -416,11 +425,13 @@
   }
 
   function incidentKey(row) {
-    return `${row.run_name || "-"}__${row.camera_id || "-"}__${row.incident_id || "-"}__${row.clip_path || "-"}`;
+    const clipName = clipBaseName(row.clip_name || row.clip_path || "-");
+    return `${row.run_name || "-"}__${row.camera_id || "-"}__${row.incident_id || "-"}__${clipName || "-"}`;
   }
 
   function fightAlertKey(row) {
-    return `${row.run_name || "-"}__${row.camera_id || "-"}__${row.incident_id || "-"}__${row.clip_path || "-"}`;
+    const clipName = clipBaseName(row.clip_name || row.clip_path || "-");
+    return `${row.run_name || "-"}__${row.camera_id || "-"}__${row.incident_id || "-"}__${clipName || "-"}`;
   }
 
   function isFightIncident(row) {
@@ -457,7 +468,7 @@
       oldModal.remove();
     }
 
-    const clipUrl = buildIncidentUrl(row.run_name, row.clip_path);
+    const clipUrl = buildIncidentUrl(row.run_name, row.clip_name || row.clip_path);
 
     const modal = document.createElement("div");
     modal.id = "fight-alert-modal";
@@ -614,7 +625,7 @@
 
     (rows || []).forEach(row => {
       const key = incidentKey(row);
-      const clipUrl = buildIncidentUrl(row.run_name, row.clip_path);
+      const clipUrl = buildIncidentUrl(row.run_name, row.clip_name || row.clip_path);
 
       const clipHtml = clipUrl
         ? `
@@ -691,7 +702,7 @@
 
       <div class="dashboard-notice-modal__box" role="dialog" aria-modal="true">
         <div class="dashboard-notice-modal__logo">
-          <img src="/static/images/togu-logo.png" alt="TOGÜ Logo" />
+          <img src="/fight-detection/static/images/togu-logo.png" alt="TOGÜ Logo" />
         </div>
 
         <div class="dashboard-notice-modal__icon"></div>

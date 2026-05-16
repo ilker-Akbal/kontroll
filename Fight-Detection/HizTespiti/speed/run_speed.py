@@ -38,6 +38,56 @@ def parse_args():
     return p.parse_args()
 
 
+def _draw_calibration_overlay(frame, calibration):
+    if str(calibration.measurement_mode or "").lower() != "two_line_time_gate":
+        return frame
+
+    try:
+        if len(calibration.line_a) == 2:
+            a1, a2 = calibration.line_a
+            cv2.line(frame, tuple(a1), tuple(a2), (0, 255, 255), 3)
+            cv2.putText(
+                frame,
+                "START",
+                tuple(a1),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (0, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
+
+        if len(calibration.line_b) == 2:
+            b1, b2 = calibration.line_b
+            cv2.line(frame, tuple(b1), tuple(b2), (255, 0, 255), 3)
+            cv2.putText(
+                frame,
+                "END",
+                tuple(b1),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.7,
+                (255, 0, 255),
+                2,
+                cv2.LINE_AA,
+            )
+
+        if calibration.distance_m is not None:
+            cv2.putText(
+                frame,
+                f"Distance: {float(calibration.distance_m):.1f} m",
+                (18, 86),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.65,
+                (255, 255, 255),
+                2,
+                cv2.LINE_AA,
+            )
+    except Exception:
+        pass
+
+    return frame
+
+
 def main():
     args = parse_args()
     cfg = load_config(args.config)
@@ -67,9 +117,11 @@ def main():
 
     calibration = load_calibration(cfg.calibration.path)
 
-    if calibration.meter_per_pixel is None:
-        print("UYARI: Kalibrasyonda meter_per_pixel yok. Hız hesaplanamaz.")
-        print("Önce calibration çalıştır veya JSON içinde scale.meter_per_pixel değerini düzelt.")
+    if not calibration.ready:
+        raise RuntimeError(
+            f"Kalibrasyon tamamlanmamış: {calibration.ready_reason}. "
+            f"Dashboard üzerinden ROI + iki ölçüm çizgisi + gerçek mesafe gir."
+        )
 
     reader = CameraReader(cfg.camera.source)
     fps = reader.fps()
@@ -77,7 +129,10 @@ def main():
     frame_buffer_size = int((cfg.evidence.clip_pre_sec + cfg.evidence.clip_post_sec + 2) * fps)
     frame_buffer = FrameBuffer(max_frames=max(30, frame_buffer_size))
 
-    roi = RoiMask(cfg.roi.enabled, cfg.roi.polygon)
+    if calibration.road_roi_enabled and calibration.road_roi_polygon:
+        roi = RoiMask(True, calibration.road_roi_polygon)
+    else:
+        roi = RoiMask(cfg.roi.enabled, cfg.roi.polygon)
 
     motion_detector = None
     motion_gate = None
@@ -96,7 +151,7 @@ def main():
 
     speed_estimator = SpeedEstimator(
         cfg=cfg.speed,
-        meter_per_pixel=calibration.meter_per_pixel,
+        calibration=calibration,
         fps=fps,
     )
 
@@ -129,11 +184,15 @@ def main():
     print(f"source           : {cfg.camera.source}")
     print(f"weights          : {cfg.yolo.weights}")
     print(f"calibration      : {cfg.calibration.path}")
+    print(f"calibration_mode : {calibration.measurement_mode}")
+    print(f"direction        : {calibration.direction}")
+    print(f"distance_m       : {calibration.distance_m}")
     print(f"meter_per_pixel  : {calibration.meter_per_pixel}")
     print(f"scale_confidence : {calibration.scale_confidence:.3f}")
     print(f"speed_limit      : {calibration.speed_limit_kmh}")
     print(f"tolerance        : {calibration.tolerance_kmh}")
     print(f"motion_enabled   : {cfg.motion.enabled}")
+    print(f"roi_enabled      : {calibration.road_roi_enabled or cfg.roi.enabled}")
     print(f"output_dir       : {out_dir}")
     print("=" * 90)
 
@@ -153,6 +212,7 @@ def main():
         if not ok or frame is None:
             if not str(cfg.camera.source).lower().startswith(("rtsp://", "http://", "https://")):
                 break
+
             continue
 
         frame_idx += 1
@@ -195,6 +255,7 @@ def main():
 
         active_track_ids = {t.track_id for t in last_tracks}
         decider.cleanup(active_track_ids)
+        speed_estimator.cleanup(active_track_ids)
 
         speed_results = {}
         decisions = {}
@@ -223,6 +284,7 @@ def main():
         )
 
         vis = roi.draw(vis)
+        vis = _draw_calibration_overlay(vis, calibration)
 
         for tr in last_tracks:
             decision = decisions.get(tr.track_id)

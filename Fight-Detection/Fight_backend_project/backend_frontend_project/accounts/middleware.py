@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.shortcuts import redirect
 from django.urls import reverse
 
@@ -33,25 +34,39 @@ class AuthRequiredMiddleware:
         ]
 
     def __call__(self, request):
-        path = request.path
+        prefix = settings.URL_PREFIX or ""
+
+        # path_info bazı durumlarda prefix'i içerir, bazen içermez.
+        # FORCE_SCRIPT_NAME setli olsa bile gunicorn --script-name
+        # geçirilmediği için path_info prefix'li gelebiliyor.
+        # Her iki durumda da path'i prefix'siz hale getir.
+        raw_path = request.path_info
+        if prefix and raw_path.startswith(prefix):
+            path = raw_path[len(prefix):] or "/"
+        else:
+            path = raw_path
 
         if path in self.admin_alias_paths:
             if request.user.is_authenticated:
-                return redirect("/admin/")
+                return redirect(f"{prefix}/admin/")
 
-            return redirect(f"{reverse('accounts:admin_login')}?next=/admin/")
+            return redirect(f"{reverse('accounts:admin_login')}?next={prefix}/admin/")
 
         is_public = any(path.startswith(p) for p in self.public_paths)
 
         if not request.user.is_authenticated and not is_public:
+            full_path = f"{prefix}{path}"
+            if request.META.get("QUERY_STRING"):
+                full_path = f"{prefix}{path}?{request.META['QUERY_STRING']}"
+
             if (
                 path.startswith("/admin/")
                 or path.startswith("/panel/")
                 or path.startswith("/admin-panel/")
             ):
-                return redirect(f"{reverse('accounts:admin_login')}?next={path}")
+                return redirect(f"{reverse('accounts:admin_login')}?next={full_path}")
 
-            return redirect(f"{reverse('accounts:splash')}?next={path}")
+            return redirect(f"{reverse('accounts:splash')}?next={full_path}")
 
         response = self.get_response(request)
 

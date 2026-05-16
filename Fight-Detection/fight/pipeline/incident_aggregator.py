@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import json
 import shutil
 import subprocess
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import Deque, Dict, List, Optional
 
 import cv2
+
+from fight.pipeline_mp.clip_overlay import draw_ai_clip_overlay
 
 
 @dataclass
@@ -121,7 +124,6 @@ class TemporalIncidentState:
 
     @property
     def decision_score(self) -> float:
-        # Tek max false-positive olmasın diye max + top-k mean karışımı.
         return (0.65 * self.max_prob) + (0.35 * self.topk_mean_prob)
 
     def vote_count(self, thr: float) -> int:
@@ -226,8 +228,6 @@ class IncidentAggregator:
 
             st = self.by_camera.get(camera_id)
 
-            # Düşük skorlu sonuçlar yeni incident başlatamaz.
-            # 0.47-0.54 bandını burada direkt bastırıyoruz.
             if st is None and result.fight_prob < self.keep_thr:
                 print(
                     f"[INCIDENT][IGNORE] camera={camera_id} event={result.event_id} "
@@ -252,7 +252,6 @@ class IncidentAggregator:
                 st = self._new_state(camera_id, result.source)
                 self.by_camera[camera_id] = st
 
-            # Idle state düşük skorla başlamasın.
             if st.state == "idle" and not st.segments and result.fight_prob < self.keep_thr:
                 print(
                     f"[INCIDENT][IGNORE] camera={camera_id} event={result.event_id} "
@@ -261,7 +260,6 @@ class IncidentAggregator:
                 )
                 return
 
-            # Aktif incident varsa ve yeni sonuç aynı olayın parçası değilse eskisini kapat.
             if st.segments and not self._can_merge(st, result):
                 self._finalize_locked(camera_id, force=(st.state == "confirmed"))
 
@@ -276,8 +274,6 @@ class IncidentAggregator:
                 st = self._new_state(camera_id, result.source)
                 self.by_camera[camera_id] = st
 
-            # Confirmed olmayan incident'e çok düşük skorları ekleme.
-            # Confirmed incidentte ise kısa non-fight bridge için sınırlı izin ver.
             if st.state != "confirmed" and result.fight_prob < self.keep_thr:
                 print(
                     f"[INCIDENT][IGNORE] camera={camera_id} event={result.event_id} "
@@ -429,8 +425,6 @@ class IncidentAggregator:
             )
             cover = self._temporal_overlap_ratio(old, result)
 
-            # Sadece gerçekten overlap edenleri tekilleştir.
-            # Yakın ama overlap etmeyen parçalar aynı incident içinde ayrı part olarak kalır.
             if same_event or tiou >= self.temporal_iou_merge_thr or cover >= 0.70:
                 replace_idx = i
                 break
@@ -494,11 +488,9 @@ class IncidentAggregator:
         if not st.segments:
             return False
 
-        # Tek çok güçlü clip varsa kaçırma.
         if st.max_prob >= self.single_strong_fight_thr:
             return True
 
-        # Tek zayıf/orta clip ile alarm yok.
         if st.part_count < self.min_incident_segments:
             return False
 
@@ -508,11 +500,9 @@ class IncidentAggregator:
         strong_votes = st.vote_count(self.enter_thr)
         keep_votes = st.vote_count(self.keep_thr)
 
-        # Production ana karar: en az 2 güçlü Stage3 sonucu.
         if strong_votes >= self.vote_enter_needed:
             return True
 
-        # Alternatif: en az 3 keep oyu ve genel karar skoru yüksekse.
         if keep_votes >= max(3, self.vote_keep_needed) and st.decision_score >= self.enter_thr:
             return True
 
@@ -589,6 +579,25 @@ class IncidentAggregator:
             )
             self.by_camera.pop(camera_id, None)
             return
+
+        overlay_meta = {
+            "camera_id": st.camera_id,
+            "source": st.source,
+            "incident_id": st.incident_id,
+            "label": final_label,
+            "score": st.decision_score,
+            "max_fight_prob": st.max_prob,
+            "start_ts": self._fmt_ts(st.start_ts),
+        }
+
+        overlay_ok = self._add_ai_overlay_to_clip(out_path, overlay_meta)
+
+        if not overlay_ok:
+            print(
+                f"[INCIDENT][WARN] ai overlay failed camera={st.camera_id} "
+                f"incident={st.incident_id} clip={out_path}",
+                flush=True,
+            )
 
         row = {
             "camera_id": st.camera_id,
@@ -683,6 +692,161 @@ class IncidentAggregator:
                 return True
             time.sleep(0.15)
         return self._clips_ready(st)
+
+    def _add_ai_overlay_to_clip(self, clip_path: Path, meta: dict) -> bool:
+        clip_path = Path(clip_path)
+
+        if not clip_path.exists() or clip_path.stat().st_size <= 0:
+            return False
+
+        tmp_path = clip_path.with_name(f"{clip_path.stem}__ai_overlay_tmp.mp4")
+
+        cap = None
+        writer = None
+
+        try:
+            cap = cv2.VideoCapture(str(clip_path))
+
+            if not cap.isOpened():
+                return False
+
+            fps = cap.get(cv2.CAP_PROP_FPS)
+            width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+            height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+            if not fps or fps <= 1:
+                fps = 16.0
+
+            if width <= 0 or height <= 0:
+                return False
+
+            fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+            writer = cv2.VideoWriter(
+                str(tmp_path),
+                fourcc,
+                float(fps),
+                (width, height),
+            )
+
+            if not writer.isOpened():
+                return False
+
+            pose_model = None
+            pose_model_loaded = False
+
+            try:
+                from ultralytics import YOLO
+
+                pose_model_path = os.getenv(
+                    "INCIDENT_POSE_MODEL",
+                    str(Path(__file__).resolve().parents[2] / "yolov8n-pose.pt"),
+                )
+
+                pose_model_file = Path(pose_model_path)
+
+                if pose_model_file.exists():
+                    pose_model = YOLO(str(pose_model_file))
+                    pose_model_loaded = True
+                    print(
+                        f"[INCIDENT][POSE] loaded pose model={pose_model_file}",
+                        flush=True,
+                    )
+                else:
+                    print(
+                        f"[INCIDENT][WARN] pose model not found path={pose_model_file}",
+                        flush=True,
+                    )
+
+            except Exception as exc:
+                print(
+                    f"[INCIDENT][WARN] pose model load failed err={exc}",
+                    flush=True,
+                )
+                pose_model = None
+
+            wrote_any = False
+            frame_index = 0
+
+            while True:
+                ok, frame = cap.read()
+
+                if not ok or frame is None:
+                    break
+
+                if pose_model is not None:
+                    try:
+                        pose_results = pose_model.predict(
+                            source=frame,
+                            conf=float(os.getenv("INCIDENT_POSE_CONF", "0.20")),
+                            iou=float(os.getenv("INCIDENT_POSE_IOU", "0.45")),
+                            imgsz=int(os.getenv("INCIDENT_POSE_IMGSZ", "640")),
+                            max_det=int(os.getenv("INCIDENT_POSE_MAX_DET", "8")),
+                            verbose=False,
+                        )
+
+                        if pose_results and pose_results[0] is not None:
+                            plotted = pose_results[0].plot()
+
+                            if plotted is not None:
+                                if plotted.shape[:2] != frame.shape[:2]:
+                                    plotted = cv2.resize(plotted, (frame.shape[1], frame.shape[0]))
+
+                                frame = plotted
+
+                    except Exception as exc:
+                        if frame_index == 0:
+                            print(
+                                f"[INCIDENT][WARN] pose draw failed err={exc}",
+                                flush=True,
+                            )
+
+                frame = draw_ai_clip_overlay(frame, meta)
+                writer.write(frame)
+                wrote_any = True
+                frame_index += 1
+
+            cap.release()
+            cap = None
+
+            writer.release()
+            writer = None
+
+            if not wrote_any:
+                tmp_path.unlink(missing_ok=True)
+                return False
+
+            if not tmp_path.exists() or tmp_path.stat().st_size <= 0:
+                tmp_path.unlink(missing_ok=True)
+                return False
+
+            tmp_path.replace(clip_path)
+
+            return clip_path.exists() and clip_path.stat().st_size > 0
+
+        except Exception as exc:
+            print(
+                f"[INCIDENT][WARN] ai overlay exception clip={clip_path} err={exc}",
+                flush=True,
+            )
+
+            try:
+                if cap is not None:
+                    cap.release()
+            except Exception:
+                pass
+
+            try:
+                if writer is not None:
+                    writer.release()
+            except Exception:
+                pass
+
+            try:
+                tmp_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+            return False
 
     def _concat_mp4s(self, clip_paths: List[str], out_path: Path) -> bool:
         valid = [str(Path(p)) for p in clip_paths if Path(p).exists()]

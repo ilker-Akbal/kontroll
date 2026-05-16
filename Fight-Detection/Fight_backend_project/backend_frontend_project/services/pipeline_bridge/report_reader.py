@@ -42,12 +42,25 @@ def _safe_int(value, default=0):
 def _rel_media_path(path_str: str, media_root: Path) -> str:
     if not path_str:
         return ""
+
     try:
         p = Path(path_str).resolve()
         media_root = Path(media_root).resolve()
         return str(p.relative_to(media_root)).replace("\\", "/")
     except Exception:
         return ""
+
+
+def _safe_clip_name(path_str: str) -> str:
+    """
+    Incident video endpoint'i tam Windows path değil, sadece dosya adı almalı.
+    C:\\...\\file.mp4 veya /.../file.mp4 gelse bile file.mp4 döndürür.
+    """
+    if not path_str:
+        return ""
+
+    s = str(path_str).strip().replace("\\", "/")
+    return Path(s).name
 
 
 def build_dashboard_report(
@@ -99,6 +112,9 @@ def build_dashboard_report(
         if latest_stage3_prob in ("", None):
             latest_stage3_prob = stage3.get("fight_prob", 0.0)
 
+        latest_incident_clip_path = incident.get("clip_path", "")
+        latest_incident_clip_name = _safe_clip_name(latest_incident_clip_path)
+
         cameras.append(
             {
                 "camera_id": camera_id,
@@ -118,8 +134,9 @@ def build_dashboard_report(
                 "latest_stage3_prob": _safe_float(latest_stage3_prob, default=0.0),
                 "latest_incident_id": incident.get("incident_id", ""),
                 "latest_incident_label": incident.get("final_label", ""),
-                "latest_incident_clip_path": incident.get("clip_path", ""),
-                "latest_incident_clip_media_path": _rel_media_path(incident.get("clip_path", ""), media_root),
+                "latest_incident_clip_path": latest_incident_clip_path,
+                "latest_incident_clip_name": latest_incident_clip_name,
+                "latest_incident_clip_media_path": _rel_media_path(latest_incident_clip_path, media_root),
                 "latest_incident_part_count": _safe_int(incident.get("part_count", ""), default=0)
                 if incident.get("part_count", "") not in ("", None)
                 else "",
@@ -140,9 +157,12 @@ def build_dashboard_report(
     recent_incidents = []
     for row in reversed(incident_rows[-100:]):
         clip_path = row.get("clip_path", "")
+        clip_name = _safe_clip_name(clip_path)
+
         recent_incidents.append(
             {
                 **row,
+                "clip_name": clip_name,
                 "clip_media_path": _rel_media_path(clip_path, media_root),
             }
         )

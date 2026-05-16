@@ -1,9 +1,215 @@
-{% extends "adminx/base.html" %} {% block title %}{{ page_title }}{% endblock %}
-{% block page_title %}{{ page_title }}{% endblock %} {% block page_desc %}Kamera
-bilgilerini doldur{% endblock %} {% block content %}
+{% extends "adminx/base.html" %}
+
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_title %}{{ page_title }}{% endblock %}
+{% block page_desc %}Kamera bilgilerini doldur{% endblock %}
+
+{% block content %}
 <style>
+  .camera-form-card {
+    max-width: 100%;
+    padding: 26px;
+  }
+
+  .camera-form-section {
+    display: grid;
+    gap: 18px;
+  }
+
+  .camera-source-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+  }
+
+  .camera-source-card {
+    display: block;
+    cursor: pointer;
+  }
+
+  .camera-source-card input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .camera-source-card__body {
+    min-height: 112px;
+    padding: 18px;
+    border: 1px solid #dbe7f2;
+    border-radius: 22px;
+    background: linear-gradient(180deg, #ffffff, #f8fbff);
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    transition:
+      border-color .16s ease,
+      box-shadow .16s ease,
+      background .16s ease,
+      transform .12s ease;
+  }
+
+  .camera-source-card:hover .camera-source-card__body {
+    transform: translateY(-1px);
+    border-color: rgba(22, 119, 255, 0.28);
+    box-shadow: 0 16px 32px rgba(15, 23, 42, 0.06);
+  }
+
+  .camera-source-card input:checked + .camera-source-card__body {
+    border-color: rgba(22, 119, 255, 0.42);
+    background:
+      linear-gradient(180deg, rgba(22,119,255,0.08), rgba(14,165,233,0.05)),
+      #ffffff;
+    box-shadow:
+      0 0 0 5px rgba(22, 119, 255, 0.08),
+      0 18px 36px rgba(22, 119, 255, 0.10);
+  }
+
+  .camera-source-card__icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 16px;
+    display: grid;
+    place-items: center;
+    flex: 0 0 auto;
+    background: #eef5fb;
+    color: #1677ff;
+    font-size: 20px;
+    font-weight: 900;
+    box-shadow: 0 10px 22px rgba(15, 23, 42, 0.05);
+  }
+
+  .camera-source-card input:checked + .camera-source-card__body .camera-source-card__icon {
+    color: #ffffff;
+    background: linear-gradient(135deg, #1677ff, #0ea5e9);
+    box-shadow: 0 14px 26px rgba(22, 119, 255, 0.22);
+  }
+
+  .camera-source-card__content {
+    display: grid;
+    gap: 7px;
+    min-width: 0;
+  }
+
+  .camera-source-card__content strong {
+    color: #0f172a;
+    font-size: 15px;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+  }
+
+  .camera-source-card__content span {
+    color: #64748b;
+    font-size: 13px;
+    line-height: 1.55;
+    font-weight: 600;
+  }
+
+  .camera-source-card__tag {
+    width: fit-content;
+    min-height: 26px;
+    padding: 0 10px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    background: rgba(22, 119, 255, 0.10);
+    color: #1677ff;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .camera-source-panel {
+    display: none;
+    padding: 18px;
+    border: 1px solid #dbe7f2;
+    border-radius: 22px;
+    background: linear-gradient(180deg, #ffffff, #f8fbff);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
+  }
+
+  .camera-source-panel.is-visible {
+    display: block;
+  }
+
+  .camera-select {
+    width: 100%;
+    min-height: 50px;
+    padding: 12px 42px 12px 14px;
+    border-radius: 16px;
+    border: 1px solid var(--stroke);
+    background: #fcfeff;
+    color: var(--text);
+    font: inherit;
+    outline: none;
+    appearance: auto;
+  }
+
+  .camera-select:focus {
+    background: #fff;
+    border-color: rgba(22,119,255,0.24);
+    box-shadow: 0 0 0 5px rgba(22,119,255,0.08);
+  }
+
+  .camera-file-box {
+    display: grid;
+    gap: 10px;
+  }
+
+  .camera-file-drop {
+    position: relative;
+    display: grid;
+    gap: 10px;
+    padding: 18px;
+    border: 1px dashed #9fc4e8;
+    border-radius: 20px;
+    background:
+      radial-gradient(500px 180px at 100% 0%, rgba(22,119,255,0.08), transparent 60%),
+      #f8fbff;
+  }
+
+  .camera-file-drop__title {
+    color: #0f172a;
+    font-size: 14px;
+    font-weight: 900;
+  }
+
+  .camera-file-drop__text {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.5;
+  }
+
+  .camera-file-input {
+    width: 100%;
+    min-height: 46px;
+    padding: 10px 12px;
+    border: 1px solid #dbe7f2;
+    border-radius: 14px;
+    background: #ffffff;
+    color: #0f172a;
+    font: inherit;
+  }
+
+  .camera-current-file {
+    padding: 12px 14px;
+    border: 1px solid #dbe7f2;
+    border-radius: 14px;
+    background: #ffffff;
+    color: #475569;
+    font-size: 13px;
+    font-weight: 700;
+    word-break: break-all;
+  }
+
+  .camera-current-file strong {
+    color: #0f172a;
+  }
+
   .camera-active-box {
-    padding: 16px 18px;
+    padding: 14px 16px;
     border: 1px solid #e2e8f0;
     border-radius: 18px;
     background: #f8fafc;
@@ -34,12 +240,14 @@ bilgilerini doldur{% endblock %} {% block content %}
 
   .camera-switch {
     position: relative;
-    width: 58px;
-    height: 32px;
+    width: 48px;
+    height: 26px;
     flex-shrink: 0;
+    display: inline-block;
   }
 
   .camera-switch input {
+    position: absolute;
     opacity: 0;
     width: 0;
     height: 0;
@@ -58,10 +266,10 @@ bilgilerini doldur{% endblock %} {% block content %}
   .camera-switch-slider::before {
     content: "";
     position: absolute;
-    width: 24px;
-    height: 24px;
-    left: 4px;
-    top: 4px;
+    width: 20px;
+    height: 20px;
+    left: 3px;
+    top: 3px;
     border-radius: 50%;
     background: #ffffff;
     transition: 0.2s ease;
@@ -73,86 +281,1255 @@ bilgilerini doldur{% endblock %} {% block content %}
   }
 
   .camera-switch input:checked + .camera-switch-slider::before {
-    transform: translateX(26px);
+    transform: translateX(22px);
   }
 
-  .camera-switch input:focus + .camera-switch-slider {
-    box-shadow:
-      inset 0 0 0 1px rgba(15, 23, 42, 0.08),
-      0 0 0 4px rgba(34, 197, 94, 0.16);
-  }
-
+  .camera-field-errors,
   .camera-active-errors {
     margin-top: 8px;
     color: #dc2626;
     font-size: 12px;
     font-weight: 700;
   }
+
+  .speed-settings-box {
+    grid-column: 1 / -1;
+    margin-top: 8px;
+    padding: 20px;
+    border: 1px solid #dbeafe;
+    border-radius: 22px;
+    background: linear-gradient(180deg, #eff6ff, #ffffff);
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+  }
+
+  .speed-module-config-wrapper {
+    display: none !important;
+  }
+
+  .speed-module-config-wrapper.is-visible {
+    display: grid !important;
+  }
+
+  .module-settings-box {
+    background: linear-gradient(180deg, #f8fafc, #ffffff);
+    border-color: #e2e8f0;
+  }
+
+  .speed-settings-head {
+    grid-column: 1 / -1;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #dbeafe;
+  }
+
+  .speed-settings-head h3 {
+    margin: 0;
+    color: #0f172a;
+    font-size: 18px;
+    font-weight: 900;
+  }
+
+  .speed-settings-head p {
+    margin: 6px 0 0;
+    color: #64748b;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.5;
+  }
+
+  .speed-inline-options {
+    display: flex;
+    gap: 18px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .speed-check-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #334155;
+    font-size: 13px;
+    font-weight: 800;
+  }
+
+  .speed-full-field {
+    grid-column: 1 / -1;
+  }
+
+  .speed-hidden-field {
+    display: none !important;
+  }
+
+  .speed-advanced {
+    grid-column: 1 / -1;
+    border: 1px solid #e2e8f0;
+    border-radius: 18px;
+    background: #ffffff;
+    overflow: hidden;
+  }
+
+  .speed-advanced summary {
+    cursor: pointer;
+    list-style: none;
+    padding: 14px 16px;
+    color: #0f172a;
+    font-size: 13px;
+    font-weight: 900;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .speed-advanced summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .speed-advanced summary::after {
+    content: "Aç";
+    float: right;
+    color: #2563eb;
+    font-size: 12px;
+    font-weight: 900;
+  }
+
+  .speed-advanced[open] summary::after {
+    content: "Kapat";
+  }
+
+  .speed-advanced__body {
+    padding: 16px;
+  }
+
+  .speed-calibration-card {
+    grid-column: 1 / -1;
+    border: 1px solid #bfdbfe;
+    border-radius: 24px;
+    background: #ffffff;
+    overflow: hidden;
+    box-shadow: 0 14px 34px rgba(37, 99, 235, 0.08);
+  }
+
+  .speed-calibration-card__head {
+    padding: 18px;
+    border-bottom: 1px solid #e2e8f0;
+    background:
+      radial-gradient(circle at top left, rgba(59, 130, 246, 0.18), transparent 36%),
+      linear-gradient(180deg, #f8fbff, #ffffff);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  .speed-calibration-card__title strong {
+    display: block;
+    color: #0f172a;
+    font-size: 16px;
+    font-weight: 950;
+  }
+
+  .speed-calibration-card__title span {
+    display: block;
+    margin-top: 6px;
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.5;
+  }
+
+  .speed-calibration-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: flex-end;
+  }
+
+  .speed-calibration-steps {
+    padding: 14px 18px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    background: #f8fafc;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .speed-step-pill {
+    border: 1px solid #e2e8f0;
+    border-radius: 16px;
+    background: #ffffff;
+    padding: 10px 12px;
+  }
+
+  .speed-step-pill span {
+    display: block;
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 950;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .speed-step-pill strong {
+    display: block;
+    margin-top: 4px;
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 950;
+  }
+
+  .speed-step-pill.is-active {
+    border-color: #2563eb;
+    background: #eff6ff;
+  }
+
+  .speed-step-pill.is-done {
+    border-color: #bbf7d0;
+    background: #f0fdf4;
+  }
+
+  .speed-calibration-canvas-wrap {
+    position: relative;
+    min-height: 420px;
+    background:
+      linear-gradient(45deg, #0f172a 25%, transparent 25%),
+      linear-gradient(-45deg, #0f172a 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #0f172a 75%),
+      linear-gradient(-45deg, transparent 75%, #0f172a 75%);
+    background-color: #111827;
+    background-size: 24px 24px;
+    background-position:
+      0 0,
+      0 12px,
+      12px -12px,
+      -12px 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: auto;
+  }
+
+  #speed-cal-canvas {
+    display: none;
+    max-width: 100%;
+    width: 100%;
+    height: auto;
+    cursor: crosshair;
+  }
+
+  .speed-calibration-empty {
+    position: absolute;
+    inset: 0;
+    color: #cbd5e1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 22px;
+    font-size: 13px;
+    font-weight: 800;
+    line-height: 1.5;
+  }
+
+  .speed-calibration-info {
+    padding: 12px 18px;
+    background: #ffffff;
+    border-top: 1px solid #e2e8f0;
+    border-bottom: 1px solid #e2e8f0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .speed-calibration-info span {
+    color: #1d4ed8;
+    font-size: 13px;
+    font-weight: 950;
+  }
+
+  .speed-calibration-info small {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+    text-align: right;
+  }
+
+  .speed-calibration-footer {
+    padding: 16px 18px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 14px;
+    align-items: end;
+    background: #ffffff;
+  }
+
+  .speed-calibration-note {
+    grid-column: 1 / -1;
+    padding: 12px 14px;
+    border-radius: 16px;
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    color: #166534;
+    font-size: 12px;
+    font-weight: 800;
+    line-height: 1.5;
+  }
+
+  .camera-form-actions,
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-top: 4px;
+    flex-wrap: wrap;
+  }
+
+  @media (max-width: 900px) {
+    .speed-settings-box {
+      grid-template-columns: 1fr;
+    }
+
+    .speed-full-field,
+    .speed-calibration-card,
+    .speed-advanced {
+      grid-column: auto;
+    }
+
+    .speed-calibration-card__head,
+    .speed-calibration-info,
+    .speed-calibration-footer {
+      grid-template-columns: 1fr;
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .speed-calibration-actions {
+      justify-content: flex-start;
+    }
+
+    .speed-calibration-info small {
+      text-align: left;
+    }
+
+    .speed-calibration-steps {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .camera-source-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .camera-form-card {
+      padding: 18px;
+    }
+  }
 </style>
 
-<div class="card">
-  <form method="post" class="form-grid">
+<div class="card camera-form-card">
+  <form method="post" enctype="multipart/form-data" class="form-grid">
     {% csrf_token %}
 
-    <div class="field">
-      <label for="{{ form.name.id_for_label }}">Kamera Adı</label>
-      {{ form.name }}
-      <small class="muted">Örnek: Giriş Kapısı Kamera 1</small>
-      {{ form.name.errors }}
-    </div>
+    {% if form.non_field_errors %}
+      <div class="danger-box">
+        {{ form.non_field_errors }}
+      </div>
+    {% endif %}
 
-    <div class="field">
-      <label for="{{ form.camera_id.id_for_label }}">Camera ID</label>
-      {{ form.camera_id }}
-      <small class="muted">
-        Sadece kısa kimlik gir. Dosya yolu girme. Örnek: cam_01, giris_kapi,
-        fight_test
-      </small>
-      {{ form.camera_id.errors }}
-    </div>
+    {% if speed_form and speed_form.non_field_errors %}
+      <div class="danger-box">
+        {{ speed_form.non_field_errors }}
+      </div>
+    {% endif %}
 
-    <div class="field">
-      <label for="{{ form.source.id_for_label }}">Kaynak</label>
-      {{ form.source }}
-      <small class="muted">
-        Gerçek kaynak buraya yazılır. Örnek: 0, rtsp://..., http://...,
-        C:/.../fight.mp4
-      </small>
-      {{ form.source.errors }}
-    </div>
+    {% if camera %}
+      <input
+        type="hidden"
+        id="camera-preview-url"
+        value="{% url 'adminx:camera_preview_frame' camera.pk %}"
+      />
+    {% else %}
+      <input type="hidden" id="camera-preview-url" value="" />
+    {% endif %}
 
-    <div class="field">
-      <label for="{{ form.faculty.id_for_label }}">Fakülte</label>
-      {{ form.faculty }}
-      <small class="muted">
-        Bu kamera yalnızca seçilen fakülteye bağlı güvenlik kullanıcılarına
-        görünür.
-      </small>
-      {{ form.faculty.errors }}
-    </div>
+    <div class="camera-form-section">
+      <div class="field">
+        <label for="{{ form.name.id_for_label }}">Kamera Adı</label>
+        {{ form.name }}
+        <small class="muted">Örnek: Giriş Kapısı Kamera 1</small>
 
-    <div class="field">
-      <div class="camera-active-box">
-        <div class="camera-active-info">
-          <strong>Kamera Durumu</strong>
-          <span>Aktif olduğunda kamera izleme ekranlarında görüntülenir.</span>
-        </div>
-
-        <label class="camera-switch" for="{{ form.is_active.id_for_label }}">
-          {{ form.is_active }}
-          <span class="camera-switch-slider"></span>
-        </label>
+        {% if form.name.errors %}
+          <div class="camera-field-errors">{{ form.name.errors }}</div>
+        {% endif %}
       </div>
 
-      {% if form.is_active.errors %}
-      <div class="camera-active-errors">{{ form.is_active.errors }}</div>
-      {% endif %}
-    </div>
+      <div class="field">
+        <label for="{{ form.camera_id.id_for_label }}">Camera ID</label>
+        {{ form.camera_id }}
+        <small class="muted">
+          Sadece kısa kimlik gir. Dosya yolu girme. Örnek: cam_01, giris_kapi, fight_test
+        </small>
 
-    <div class="actions">
-      <button type="submit" class="btn success">{{ submit_label }}</button>
-      <a href="{% url 'adminx:camera_list' %}" class="btn secondary">İptal</a>
+        {% if form.camera_id.errors %}
+          <div class="camera-field-errors">{{ form.camera_id.errors }}</div>
+        {% endif %}
+      </div>
+
+      <div class="field">
+        <label>Kaynak Tipi</label>
+
+        <div class="camera-source-grid">
+          <label class="camera-source-card" for="sourceModeManual">
+            <input
+              type="radio"
+              id="sourceModeManual"
+              name="{{ form.source_mode.html_name }}"
+              value="manual"
+              {% if form.source_mode.value == "manual" or not form.source_mode.value %}checked{% endif %}
+            />
+
+            <div class="camera-source-card__body">
+              <div class="camera-source-card__icon">↗</div>
+
+              <div class="camera-source-card__content">
+                <strong>Manuel kaynak</strong>
+                <span>
+                  IP kamera, RTSP/HTTP adresi, cihaz index'i veya local video yolu gir.
+                </span>
+                <div class="camera-source-card__tag">Canlı / Path</div>
+              </div>
+            </div>
+          </label>
+
+          <label class="camera-source-card" for="sourceModeUpload">
+            <input
+              type="radio"
+              id="sourceModeUpload"
+              name="{{ form.source_mode.html_name }}"
+              value="upload"
+              {% if form.source_mode.value == "upload" %}checked{% endif %}
+            />
+
+            <div class="camera-source-card__body">
+              <div class="camera-source-card__icon">▣</div>
+
+              <div class="camera-source-card__content">
+                <strong>Video yükle</strong>
+                <span>
+                  Kullanıcının sisteme video dosyası yüklemesini ve pipeline kaynağı olarak kullanmasını sağlar.
+                </span>
+                <div class="camera-source-card__tag">Dosya Upload</div>
+              </div>
+            </div>
+          </label>
+        </div>
+
+        {% if form.source_mode.errors %}
+          <div class="camera-field-errors">{{ form.source_mode.errors }}</div>
+        {% endif %}
+      </div>
+
+      <div id="manualSourcePanel" class="camera-source-panel">
+        <div class="field">
+          <label for="{{ form.source.id_for_label }}">Manuel Kaynak</label>
+          {{ form.source }}
+
+          <small class="muted">
+            Örnek: 0, rtsp://..., http://..., C:/.../fight.mp4
+          </small>
+
+          {% if form.source.errors %}
+            <div class="camera-field-errors">{{ form.source.errors }}</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div id="uploadSourcePanel" class="camera-source-panel">
+        <div class="field">
+          <label for="{{ form.uploaded_video.id_for_label }}">Video Dosyası</label>
+
+          <div class="camera-file-box">
+            <div class="camera-file-drop">
+              <div>
+                <div class="camera-file-drop__title">Video dosyasını seç</div>
+                <div class="camera-file-drop__text">
+                  Desteklenen formatlar: mp4, avi, mov, mkv, webm.
+                  Video yüklendiğinde kaynak otomatik oluşturulur.
+                </div>
+              </div>
+
+              {{ form.uploaded_video }}
+            </div>
+
+            {% if form.instance.uploaded_video %}
+              <div class="camera-current-file">
+                <strong>Mevcut video:</strong>
+                {{ form.instance.uploaded_video.name }}
+              </div>
+            {% endif %}
+          </div>
+
+          {% if form.uploaded_video.errors %}
+            <div class="camera-field-errors">{{ form.uploaded_video.errors }}</div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="{{ form.description.id_for_label }}">Açıklama</label>
+        {{ form.description }}
+        <small class="muted">
+          İsteğe bağlı kamera açıklaması.
+        </small>
+
+        {% if form.description.errors %}
+          <div class="camera-field-errors">{{ form.description.errors }}</div>
+        {% endif %}
+      </div>
+
+      <div class="field">
+        <label for="{{ form.faculty.id_for_label }}">Fakülte / Mevki</label>
+        {{ form.faculty }}
+        <small class="muted">
+          Bu kamera yalnızca seçilen fakülte/mevki ile ilişkilendirilir.
+        </small>
+
+        {% if form.faculty.errors %}
+          <div class="camera-field-errors">{{ form.faculty.errors }}</div>
+        {% endif %}
+      </div>
+
+      <div class="field">
+        <div class="camera-active-box">
+          <div class="camera-active-info">
+            <strong>Kamera Durumu</strong>
+            <span>Aktif olduğunda kamera izleme ekranlarında görüntülenir.</span>
+          </div>
+
+          <label class="camera-switch" for="{{ form.is_active.id_for_label }}">
+            {{ form.is_active }}
+            <span class="camera-switch-slider"></span>
+          </label>
+        </div>
+
+        {% if form.is_active.errors %}
+          <div class="camera-active-errors">{{ form.is_active.errors }}</div>
+        {% endif %}
+      </div>
+
+      <div class="speed-settings-box module-settings-box">
+        <div class="speed-settings-head">
+          <h3>Modül Seçimi</h3>
+          <p>
+            Bu kameranın hangi yapay zeka modüllerinde çalışacağını seç.
+            Bir kamera birden fazla modülde kullanılabilir.
+          </p>
+        </div>
+
+        <div class="field">
+          <div class="camera-active-box">
+            <div class="camera-active-info">
+              <strong>Kavga Tespiti</strong>
+              <span>Bu kamera kavga tespiti ekranında ve pipeline’ında kullanılır.</span>
+            </div>
+
+            <label class="camera-switch" for="{{ form.use_fight_detection.id_for_label }}">
+              {{ form.use_fight_detection }}
+              <span class="camera-switch-slider"></span>
+            </label>
+          </div>
+
+          {% if form.use_fight_detection.errors %}
+            <div class="camera-active-errors">{{ form.use_fight_detection.errors }}</div>
+          {% endif %}
+        </div>
+
+        <div class="field">
+          <div class="camera-active-box">
+            <div class="camera-active-info">
+              <strong>Hız Tespiti</strong>
+              <span>Bu kamera hız tespiti ekranında ve pipeline’ında kullanılır.</span>
+            </div>
+
+            <label class="camera-switch" for="{{ form.use_speed_detection.id_for_label }}">
+              {{ form.use_speed_detection }}
+              <span class="camera-switch-slider"></span>
+            </label>
+          </div>
+
+          {% if form.use_speed_detection.errors %}
+            <div class="camera-active-errors">{{ form.use_speed_detection.errors }}</div>
+          {% endif %}
+        </div>
+      </div>
+
+      {% if speed_form %}
+        <div
+          id="speedModuleConfigWrapper"
+          class="speed-settings-box speed-module-config-wrapper"
+        >
+          <div class="speed-settings-head">
+            <h3>Hız Tespiti Ayarları</h3>
+            <p>
+              Hız limiti, tolerans, iki çizgi kalibrasyonu ve kanıt kaydı ayarlarını
+              tek yerden yönetebilirsin. ROI artık ayrı seçilmiyor; kalibrasyon alanının
+              içinde seçilen yol bölgesi kullanılıyor.
+            </p>
+          </div>
+
+          <div class="field speed-full-field">
+            <div class="camera-active-box">
+              <div class="camera-active-info">
+                <strong>Hız Tespiti Durumu</strong>
+                <span>
+                  Aktif olduğunda bu kamera hız tespiti pipeline’ına dahil edilir.
+                </span>
+              </div>
+
+              <label class="camera-switch" for="{{ speed_form.enabled.id_for_label }}">
+                {{ speed_form.enabled }}
+                <span class="camera-switch-slider"></span>
+              </label>
+            </div>
+
+            {% if speed_form.enabled.errors %}
+              <div class="camera-active-errors">{{ speed_form.enabled.errors }}</div>
+            {% endif %}
+          </div>
+
+          <div class="field">
+            <label for="{{ speed_form.speed_limit_kmh.id_for_label }}">
+              Hız Limiti (km/h)
+            </label>
+            {{ speed_form.speed_limit_kmh }}
+            <small class="muted">Örnek: 30</small>
+            {{ speed_form.speed_limit_kmh.errors }}
+          </div>
+
+          <div class="field">
+            <label for="{{ speed_form.tolerance_kmh.id_for_label }}">
+              Tolerans (km/h)
+            </label>
+            {{ speed_form.tolerance_kmh }}
+            <small class="muted">
+              Limit + tolerans üstü ihlal sayılır. Örnek: 30 + 10 = 40 km/h.
+            </small>
+            {{ speed_form.tolerance_kmh.errors }}
+          </div>
+
+          <div class="speed-hidden-field">
+            {{ speed_form.roi_polygon_text }}
+            <input type="hidden" name="{{ speed_form.roi_enabled.html_name }}" value="on" />
+          </div>
+
+          {% if camera %}
+            <div class="speed-calibration-card">
+              <div class="speed-calibration-card__head">
+                <div class="speed-calibration-card__title">
+                  <strong>İki Çizgi Hız Kalibrasyonu</strong>
+                  <span>
+                    Bu bölüm hem yol bölgesini hem de hız ölçüm çizgilerini belirler.
+                    Üstte ayrı ROI seçimi yok; sistem burada seçilen ROI’yi kullanır.
+                  </span>
+                </div>
+
+                <div class="speed-calibration-actions">
+                  <button type="button" class="btn secondary" id="speed-cal-load-btn">
+                    Görüntüyü Al
+                  </button>
+
+                  <button type="button" class="btn secondary" id="speed-cal-roi-done-btn">
+                    ROI Bitti
+                  </button>
+
+                  <button type="button" class="btn secondary" id="speed-cal-undo-btn">
+                    Son Noktayı Sil
+                  </button>
+
+                  <button type="button" class="btn danger" id="speed-cal-reset-btn">
+                    Temizle
+                  </button>
+                </div>
+              </div>
+
+              <div class="speed-calibration-steps">
+                <div class="speed-step-pill is-active" data-speed-step-pill="roi">
+                  <span>1. Adım</span>
+                  <strong>Yol Bölgesi</strong>
+                </div>
+
+                <div class="speed-step-pill" data-speed-step-pill="line_a">
+                  <span>2. Adım</span>
+                  <strong>Başlangıç Çizgisi</strong>
+                </div>
+
+                <div class="speed-step-pill" data-speed-step-pill="line_b">
+                  <span>3. Adım</span>
+                  <strong>Bitiş Çizgisi</strong>
+                </div>
+
+                <div class="speed-step-pill" data-speed-step-pill="distance">
+                  <span>4. Adım</span>
+                  <strong>Gerçek Mesafe</strong>
+                </div>
+              </div>
+
+              <div class="speed-calibration-canvas-wrap">
+                <canvas id="speed-cal-canvas"></canvas>
+
+                <div class="speed-calibration-empty" id="speed-cal-empty-state">
+                  Kalibrasyon için “Görüntüyü Al” butonuna bas.
+                  <br />
+                  Yeni kamera ekliyorsan önce kamerayı kaydet, sonra düzenleme ekranında kalibrasyon yap.
+                </div>
+              </div>
+
+              <div class="speed-calibration-info">
+                <span id="speed-cal-step-text">Adım: ROI seçimi</span>
+                <small id="speed-cal-help-text">
+                  Yol alanı için en az 3 nokta seç, sonra ROI Bitti butonuna bas.
+                </small>
+              </div>
+
+              <div class="speed-calibration-footer">
+                <div class="field" style="margin: 0;">
+                  <label for="speed-cal-distance-input">İki çizgi arası gerçek mesafe (metre)</label>
+                  <input id="speed-cal-distance-input" type="number" min="0.1" step="0.1" placeholder="Örnek: 30" />
+                  <small class="muted">
+                    Bu değer hız hesabında doğrudan kullanılır. Çizgiler arası gerçek yol mesafesini gir.
+                  </small>
+                </div>
+
+                <button type="button" class="btn success" id="speed-cal-save-btn">
+                  Kalibrasyonu Kaydet
+                </button>
+
+                <div class="speed-calibration-note">
+                  Kaydetme sırası: Görüntüyü Al → yol bölgesini seç → ROI Bitti → başlangıç çizgisi için 2 nokta →
+                  bitiş çizgisi için 2 nokta → gerçek mesafe → Kalibrasyonu Kaydet.
+                </div>
+              </div>
+            </div>
+
+            <input type="hidden" id="speed-cal-frame-url" value="{% url 'speed_detection:calibration_frame' camera.camera_id %}" />
+            <input type="hidden" id="speed-cal-save-url" value="{% url 'speed_detection:save_calibration' camera.camera_id %}" />
+          {% else %}
+            <div class="speed-calibration-note">
+              Kalibrasyon yapabilmek için önce kamerayı kaydet. Kamera kaydedildikten sonra düzenleme ekranında
+              görüntü alıp ROI, başlangıç çizgisi, bitiş çizgisi ve gerçek mesafeyi belirleyebilirsin.
+            </div>
+          {% endif %}
+
+          <details class="speed-advanced">
+            <summary>Gelişmiş hız ayarları</summary>
+
+            <div class="speed-advanced__body">
+              <div class="field">
+                <label for="{{ speed_form.calibration_path.id_for_label }}">
+                  Kalibrasyon Dosyası
+                </label>
+                {{ speed_form.calibration_path }}
+                <small class="muted">
+                  Normalde boş bırak. Boşsa sistem kamera ID’ye göre varsayılan kalibrasyon dosyasını kullanır.
+                  Özel dosya kullanman gerekirse buradan verebilirsin.
+                </small>
+                {{ speed_form.calibration_path.errors }}
+              </div>
+            </div>
+          </details>
+
+          <div class="field speed-full-field">
+            <div class="camera-active-box">
+              <div class="camera-active-info">
+                <strong>Kanıt Kaydı</strong>
+                <span>İhlal anında snapshot ve clip kaydedilir.</span>
+              </div>
+
+              <div class="speed-inline-options">
+                <label class="speed-check-label">
+                  {{ speed_form.save_snapshot }}
+                  Snapshot
+                </label>
+
+                <label class="speed-check-label">
+                  {{ speed_form.save_clip }}
+                  Clip
+                </label>
+              </div>
+            </div>
+
+            {{ speed_form.save_snapshot.errors }}
+            {{ speed_form.save_clip.errors }}
+          </div>
+        </div>
+      {% endif %}
+
+      <div class="actions">
+        <button type="submit" class="btn success">{{ submit_label }}</button>
+        <a href="{% url 'adminx:camera_list' %}" class="btn secondary">İptal</a>
+      </div>
     </div>
   </form>
 </div>
+
+<script>
+  function updateCameraSourcePanels() {
+    const selected = document.querySelector('input[name="{{ form.source_mode.html_name }}"]:checked');
+    const manualPanel = document.getElementById("manualSourcePanel");
+    const uploadPanel = document.getElementById("uploadSourcePanel");
+
+    if (!selected || !manualPanel || !uploadPanel) {
+      return;
+    }
+
+    if (selected.value === "upload") {
+      manualPanel.classList.remove("is-visible");
+      uploadPanel.classList.add("is-visible");
+    } else {
+      uploadPanel.classList.remove("is-visible");
+      manualPanel.classList.add("is-visible");
+    }
+  }
+
+  function updateSpeedModuleConfigVisibility() {
+    const speedModuleCheckbox = document.getElementById("{{ form.use_speed_detection.id_for_label }}");
+    const speedConfigWrapper = document.getElementById("speedModuleConfigWrapper");
+
+    if (!speedModuleCheckbox || !speedConfigWrapper) {
+      return;
+    }
+
+    if (speedModuleCheckbox.checked) {
+      speedConfigWrapper.classList.add("is-visible");
+    } else {
+      speedConfigWrapper.classList.remove("is-visible");
+    }
+  }
+
+  document.addEventListener("DOMContentLoaded", function () {
+    const radios = document.querySelectorAll('input[name="{{ form.source_mode.html_name }}"]');
+
+    radios.forEach(function (radio) {
+      radio.addEventListener("change", updateCameraSourcePanels);
+    });
+
+    const speedModuleCheckbox = document.getElementById("{{ form.use_speed_detection.id_for_label }}");
+
+    if (speedModuleCheckbox) {
+      speedModuleCheckbox.addEventListener("change", updateSpeedModuleConfigVisibility);
+    }
+
+    updateCameraSourcePanels();
+    updateSpeedModuleConfigVisibility();
+  });
+</script>
+
+{% if speed_form %}
+<script>
+  (function () {
+    const canvas = document.getElementById("speed-cal-canvas");
+    const emptyState = document.getElementById("speed-cal-empty-state");
+    const loadBtn = document.getElementById("speed-cal-load-btn");
+    const roiDoneBtn = document.getElementById("speed-cal-roi-done-btn");
+    const undoBtn = document.getElementById("speed-cal-undo-btn");
+    const resetBtn = document.getElementById("speed-cal-reset-btn");
+    const saveBtn = document.getElementById("speed-cal-save-btn");
+    const stepText = document.getElementById("speed-cal-step-text");
+    const helpText = document.getElementById("speed-cal-help-text");
+    const distanceInput = document.getElementById("speed-cal-distance-input");
+    const frameUrlInput = document.getElementById("speed-cal-frame-url");
+    const saveUrlInput = document.getElementById("speed-cal-save-url");
+    const roiHiddenInput = document.getElementById("{{ speed_form.roi_polygon_text.id_for_label }}");
+
+    if (!canvas || !frameUrlInput || !saveUrlInput) return;
+
+    const ctx = canvas.getContext("2d");
+    const image = new Image();
+
+    let imageLoaded = false;
+    let step = "roi";
+    let roi = [];
+    let lineA = [];
+    let lineB = [];
+
+    const stepOrder = ["roi", "line_a", "line_b", "distance"];
+
+    function csrfToken() {
+      const names = ["fight_csrftoken", "csrftoken"];
+
+      for (const name of names) {
+        const value = `; ${document.cookie}`;
+        const parts = value.split(`; ${name}=`);
+
+        if (parts.length === 2) {
+          return parts.pop().split(";").shift();
+        }
+      }
+
+      return "";
+    }
+
+    function parseExistingRoi() {
+      if (!roiHiddenInput) return;
+
+      try {
+        const raw = roiHiddenInput.value || "[]";
+        const parsed = JSON.parse(raw);
+
+        if (!Array.isArray(parsed)) return;
+
+        roi = parsed
+          .filter(function (p) {
+            return Array.isArray(p) && p.length === 2;
+          })
+          .map(function (p) {
+            return [Number(p[0]), Number(p[1])];
+          })
+          .filter(function (p) {
+            return Number.isFinite(p[0]) && Number.isFinite(p[1]);
+          });
+      } catch (err) {
+        roi = [];
+      }
+    }
+
+    function syncStepPills() {
+      const currentIndex = stepOrder.indexOf(step);
+
+      document.querySelectorAll("[data-speed-step-pill]").forEach(function (el) {
+        const pillStep = el.getAttribute("data-speed-step-pill");
+        const pillIndex = stepOrder.indexOf(pillStep);
+
+        el.classList.toggle("is-active", pillStep === step);
+        el.classList.toggle("is-done", pillIndex >= 0 && pillIndex < currentIndex);
+      });
+    }
+
+    function setStep(nextStep) {
+      step = nextStep;
+
+      const labels = {
+        roi: [
+          "Adım: Yol bölgesi / ROI seçimi",
+          "Yol alanı için en az 3 nokta seç, sonra ROI Bitti butonuna bas."
+        ],
+        line_a: [
+          "Adım: Başlangıç çizgisi",
+          "Aracın önce geçeceği çizgi için 2 nokta seç."
+        ],
+        line_b: [
+          "Adım: Bitiş çizgisi",
+          "Aracın sonra geçeceği çizgi için 2 nokta seç."
+        ],
+        distance: [
+          "Adım: Gerçek mesafe",
+          "İki çizgi arasındaki gerçek mesafeyi metre cinsinden gir ve kaydet."
+        ],
+      };
+
+      const pair = labels[step] || labels.roi;
+
+      if (stepText) stepText.textContent = pair[0];
+      if (helpText) helpText.textContent = pair[1];
+
+      syncStepPills();
+    }
+
+    function syncRoiHidden() {
+      if (!roiHiddenInput) return;
+
+      roiHiddenInput.value = JSON.stringify(
+        roi.map(function (p) {
+          return [Math.round(p[0]), Math.round(p[1])];
+        })
+      );
+    }
+
+    function drawPoint(point, color, label) {
+      ctx.beginPath();
+      ctx.arc(point[0], point[1], 6, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#ffffff";
+      ctx.stroke();
+
+      if (label) {
+        ctx.font = "bold 12px Arial";
+        ctx.fillStyle = "#ffffff";
+        ctx.strokeStyle = "rgba(15, 23, 42, 0.75)";
+        ctx.lineWidth = 4;
+        ctx.strokeText(label, point[0] + 9, point[1] - 9);
+        ctx.fillText(label, point[0] + 9, point[1] - 9);
+      }
+    }
+
+    function drawLine(points, color, label) {
+      points.forEach(function (p, index) {
+        drawPoint(p, color, label + "." + String(index + 1));
+      });
+
+      if (points.length >= 2) {
+        ctx.beginPath();
+        ctx.moveTo(points[0][0], points[0][1]);
+        ctx.lineTo(points[1][0], points[1][1]);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 4;
+        ctx.stroke();
+
+        ctx.font = "bold 16px Arial";
+        ctx.fillStyle = color;
+        ctx.strokeStyle = "rgba(15, 23, 42, 0.85)";
+        ctx.lineWidth = 5;
+        ctx.strokeText(label, points[0][0] + 10, points[0][1] - 12);
+        ctx.fillText(label, points[0][0] + 10, points[0][1] - 12);
+      }
+    }
+
+    function drawRoi() {
+      if (roi.length <= 0) return;
+
+      ctx.beginPath();
+
+      roi.forEach(function (p, idx) {
+        if (idx === 0) {
+          ctx.moveTo(p[0], p[1]);
+        } else {
+          ctx.lineTo(p[0], p[1]);
+        }
+      });
+
+      if (roi.length >= 3) {
+        ctx.closePath();
+        ctx.fillStyle = "rgba(34, 197, 94, 0.18)";
+        ctx.fill();
+      }
+
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "#22c55e";
+      ctx.stroke();
+
+      roi.forEach(function (p, idx) {
+        drawPoint(p, "#22c55e", "R" + String(idx + 1));
+      });
+    }
+
+    function draw() {
+      syncRoiHidden();
+
+      if (!imageLoaded) return;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+      drawRoi();
+      drawLine(lineA, "#facc15", "START");
+      drawLine(lineB, "#e879f9", "END");
+    }
+
+    function canvasPoint(event) {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = canvas.width / rect.width;
+      const scaleY = canvas.height / rect.height;
+
+      return [
+        Math.round((event.clientX - rect.left) * scaleX),
+        Math.round((event.clientY - rect.top) * scaleY),
+      ];
+    }
+
+    function loadFrame() {
+      if (!frameUrlInput.value) {
+        alert("Kalibrasyon görüntüsü için önce kamerayı kaydetmelisin.");
+        return;
+      }
+
+      image.onload = function () {
+        canvas.width = image.naturalWidth || image.width;
+        canvas.height = image.naturalHeight || image.height;
+        canvas.style.display = "block";
+
+        if (emptyState) {
+          emptyState.style.display = "none";
+        }
+
+        imageLoaded = true;
+        draw();
+      };
+
+      image.onerror = function () {
+        alert("Kalibrasyon görüntüsü alınamadı. Kamera kaynağını kontrol et.");
+      };
+
+      image.src = frameUrlInput.value + "?t=" + Date.now();
+    }
+
+    function resetAll() {
+      roi = [];
+      lineA = [];
+      lineB = [];
+
+      if (distanceInput) {
+        distanceInput.value = "";
+      }
+
+      setStep("roi");
+      draw();
+    }
+
+    function undo() {
+      if (step === "roi") {
+        roi.pop();
+      } else if (step === "line_a") {
+        lineA.pop();
+      } else if (step === "line_b") {
+        lineB.pop();
+      } else if (step === "distance") {
+        if (lineB.length > 0) {
+          lineB.pop();
+          setStep("line_b");
+        } else if (lineA.length > 0) {
+          lineA.pop();
+          setStep("line_a");
+        }
+      }
+
+      draw();
+    }
+
+    async function saveCalibration() {
+      const distance = Number(distanceInput ? distanceInput.value : "");
+
+      if (roi.length < 3) {
+        alert("Yol bölgesi / ROI için en az 3 nokta seçmelisin.");
+        setStep("roi");
+        return;
+      }
+
+      if (lineA.length !== 2) {
+        alert("Başlangıç çizgisi için 2 nokta seçmelisin.");
+        setStep("line_a");
+        return;
+      }
+
+      if (lineB.length !== 2) {
+        alert("Bitiş çizgisi için 2 nokta seçmelisin.");
+        setStep("line_b");
+        return;
+      }
+
+      if (!Number.isFinite(distance) || distance <= 0) {
+        alert("Gerçek mesafeyi metre olarak gir.");
+        setStep("distance");
+        return;
+      }
+
+      if (saveBtn) {
+        saveBtn.disabled = true;
+        saveBtn.textContent = "Kaydediliyor...";
+      }
+
+      try {
+        const response = await fetch(saveUrlInput.value, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-CSRFToken": csrfToken(),
+            "X-Requested-With": "XMLHttpRequest",
+          },
+          body: JSON.stringify({
+            roi_polygon: roi,
+            line_a: lineA,
+            line_b: lineB,
+            distance_m: distance,
+            direction: "A_TO_B",
+          }),
+        });
+
+        const data = await response.json().catch(function () {
+          return null;
+        });
+
+        if (!response.ok || !data || !data.ok) {
+          alert(data?.message || "Kalibrasyon kaydedilemedi.");
+          return;
+        }
+
+        syncRoiHidden();
+        alert("Kalibrasyon kaydedildi. Diğer kamera ayarları için formu da Güncelle diyerek kaydet.");
+      } catch (err) {
+        console.error("Kalibrasyon kaydetme hatası:", err);
+        alert("Kalibrasyon kaydedilemedi. Django terminalini kontrol et.");
+      } finally {
+        if (saveBtn) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = "Kalibrasyonu Kaydet";
+        }
+      }
+    }
+
+    if (loadBtn) {
+      loadBtn.addEventListener("click", loadFrame);
+    }
+
+    if (roiDoneBtn) {
+      roiDoneBtn.addEventListener("click", function () {
+        if (roi.length < 3) {
+          alert("Yol bölgesi / ROI için en az 3 nokta seçmelisin.");
+          return;
+        }
+
+        setStep("line_a");
+        draw();
+      });
+    }
+
+    if (undoBtn) {
+      undoBtn.addEventListener("click", undo);
+    }
+
+    if (resetBtn) {
+      resetBtn.addEventListener("click", resetAll);
+    }
+
+    if (saveBtn) {
+      saveBtn.addEventListener("click", saveCalibration);
+    }
+
+    canvas.addEventListener("click", function (event) {
+      if (!imageLoaded) return;
+
+      const p = canvasPoint(event);
+
+      if (step === "roi") {
+        roi.push(p);
+      } else if (step === "line_a") {
+        if (lineA.length < 2) {
+          lineA.push(p);
+        }
+
+        if (lineA.length === 2) {
+          setStep("line_b");
+        }
+      } else if (step === "line_b") {
+        if (lineB.length < 2) {
+          lineB.push(p);
+        }
+
+        if (lineB.length === 2) {
+          setStep("distance");
+        }
+      }
+
+      draw();
+    });
+
+    parseExistingRoi();
+    syncRoiHidden();
+    setStep("roi");
+  })();
+</script>
+{% endif %}
 {% endblock %}

@@ -1,33 +1,97 @@
 from django import forms
-from django.contrib.auth.models import User
 from django.contrib.auth.forms import PasswordChangeForm
+from django.contrib.auth.models import User
+
+from adminx.models import FacultyLocation
 
 from .models import UserProfile
 
 
+def get_faculty_location_choices(include_empty=False, current_value=None):
+    choices = []
+
+    if include_empty:
+        choices.append(("", "Fakülte / mevki seçiniz"))
+
+    items = (
+        FacultyLocation.objects
+        .filter(is_active=True)
+        .order_by("name")
+    )
+
+    for item in items:
+        choices.append((item.code, item.name))
+
+    if current_value:
+        exists_in_choices = any(value == current_value for value, label in choices)
+
+        if not exists_in_choices:
+            old_item = FacultyLocation.objects.filter(code=current_value).first()
+
+            if old_item:
+                choices.append((old_item.code, f"{old_item.name} (Pasif)"))
+            else:
+                choices.append((current_value, f"{current_value} (Eski kayıt)"))
+
+    return choices
+
+
 class UserRegisterForm(forms.Form):
     faculty = forms.ChoiceField(
-        choices=UserProfile.FACULTY_CHOICES,
-        widget=forms.Select()
+        label="Fakülte / Mevki",
+        choices=[],
+        required=True,
+        widget=forms.Select(),
     )
 
     email = forms.EmailField(
         widget=forms.EmailInput(
-            attrs={"placeholder": "ornek@togu.edu.tr"}
+            attrs={
+                "placeholder": "ornek@togu.edu.tr",
+            }
         )
     )
 
     password1 = forms.CharField(
         widget=forms.PasswordInput(
-            attrs={"placeholder": "Şifrenizi girin"}
+            attrs={
+                "placeholder": "Şifrenizi girin",
+            }
         )
     )
 
     password2 = forms.CharField(
         widget=forms.PasswordInput(
-            attrs={"placeholder": "Şifrenizi tekrar girin"}
+            attrs={
+                "placeholder": "Şifrenizi tekrar girin",
+            }
         )
     )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.fields["faculty"].choices = get_faculty_location_choices(
+            include_empty=True,
+        )
+
+    def clean_faculty(self):
+        faculty = self.cleaned_data.get("faculty")
+
+        if not faculty:
+            raise forms.ValidationError("Lütfen fakülte / mevki seçiniz.")
+
+        exists = FacultyLocation.objects.filter(
+            code=faculty,
+            is_active=True,
+        ).exists()
+
+        if not exists:
+            raise forms.ValidationError(
+                "Seçilen fakülte / mevki geçerli değil veya pasif durumda."
+            )
+
+        return faculty
 
     def clean_email(self):
         email = self.cleaned_data.get("email")
@@ -56,23 +120,25 @@ class UserRegisterForm(forms.Form):
         user = User.objects.create_user(
             username=email,
             email=email,
-            password=password
+            password=password,
         )
 
         user.profile.faculty = faculty
-        user.profile.save()
+        user.profile.save(update_fields=["faculty"])
 
         return user
 
 
 class AccountUpdateForm(forms.ModelForm):
     faculty = forms.ChoiceField(
-        label="Fakülte",
-        choices=UserProfile.FACULTY_CHOICES,
+        label="Fakülte / Mevki",
+        choices=[],
         required=False,
-        widget=forms.Select(attrs={
-            "class": "account-input",
-        }),
+        widget=forms.Select(
+            attrs={
+                "class": "account-input",
+            }
+        ),
     )
 
     class Meta:
@@ -85,14 +151,18 @@ class AccountUpdateForm(forms.ModelForm):
         }
 
         widgets = {
-            "username": forms.TextInput(attrs={
-                "class": "account-input",
-                "placeholder": "Kullanıcı adınızı girin",
-            }),
-            "email": forms.EmailInput(attrs={
-                "class": "account-input",
-                "placeholder": "E-posta adresinizi girin",
-            }),
+            "username": forms.TextInput(
+                attrs={
+                    "class": "account-input",
+                    "placeholder": "Kullanıcı adınızı girin",
+                }
+            ),
+            "email": forms.EmailInput(
+                attrs={
+                    "class": "account-input",
+                    "placeholder": "E-posta adresinizi girin",
+                }
+            ),
         }
 
     def __init__(self, *args, **kwargs):
@@ -100,8 +170,36 @@ class AccountUpdateForm(forms.ModelForm):
 
         super().__init__(*args, **kwargs)
 
+        current_value = None
+
+        if self.profile:
+            current_value = self.profile.faculty
+
+        self.fields["faculty"].choices = get_faculty_location_choices(
+            include_empty=True,
+            current_value=current_value,
+        )
+
         if self.profile:
             self.fields["faculty"].initial = self.profile.faculty
+
+    def clean_faculty(self):
+        faculty = self.cleaned_data.get("faculty")
+
+        if not faculty:
+            return ""
+
+        exists = FacultyLocation.objects.filter(
+            code=faculty,
+            is_active=True,
+        ).exists()
+
+        if not exists:
+            raise forms.ValidationError(
+                "Seçilen fakülte / mevki geçerli değil veya pasif durumda."
+            )
+
+        return faculty
 
     def clean_username(self):
         username = self.cleaned_data.get("username")
@@ -125,10 +223,10 @@ class AccountUpdateForm(forms.ModelForm):
         user = super().save(commit=commit)
 
         if self.profile:
-            self.profile.faculty = self.cleaned_data.get("faculty")
+            self.profile.faculty = self.cleaned_data.get("faculty") or None
 
             if commit:
-                self.profile.save()
+                self.profile.save(update_fields=["faculty"])
 
         return user
 
@@ -136,24 +234,30 @@ class AccountUpdateForm(forms.ModelForm):
 class CustomPasswordChangeForm(PasswordChangeForm):
     old_password = forms.CharField(
         label="Mevcut Şifre",
-        widget=forms.PasswordInput(attrs={
-            "class": "account-input",
-            "placeholder": "Mevcut şifrenizi girin",
-        }),
+        widget=forms.PasswordInput(
+            attrs={
+                "class": "account-input",
+                "placeholder": "Mevcut şifrenizi girin",
+            }
+        ),
     )
 
     new_password1 = forms.CharField(
         label="Yeni Şifre",
-        widget=forms.PasswordInput(attrs={
-            "class": "account-input",
-            "placeholder": "Yeni şifrenizi girin",
-        }),
+        widget=forms.PasswordInput(
+            attrs={
+                "class": "account-input",
+                "placeholder": "Yeni şifrenizi girin",
+            }
+        ),
     )
 
     new_password2 = forms.CharField(
         label="Yeni Şifre Tekrar",
-        widget=forms.PasswordInput(attrs={
-            "class": "account-input",
-            "placeholder": "Yeni şifrenizi tekrar girin",
-        }),
+        widget=forms.PasswordInput(
+            attrs={
+                "class": "account-input",
+                "placeholder": "Yeni şifrenizi tekrar girin",
+            }
+        ),
     )

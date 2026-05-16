@@ -8,6 +8,12 @@ ENV PYTHONPATH=/app
 
 WORKDIR /app
 
+# TR university network için Ubuntu mirror (archive.ubuntu.com bloklu)
+RUN echo "deb http://ftp.linux.org.tr/ubuntu/ jammy main restricted universe multiverse" > /etc/apt/sources.list \
+ && echo "deb http://ftp.linux.org.tr/ubuntu/ jammy-updates main restricted universe multiverse" >> /etc/apt/sources.list \
+ && echo "deb http://ftp.linux.org.tr/ubuntu/ jammy-backports main restricted universe multiverse" >> /etc/apt/sources.list \
+ && echo "deb http://ftp.linux.org.tr/ubuntu/ jammy-security main restricted universe multiverse" >> /etc/apt/sources.list
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.10 \
     python3.10-dev \
@@ -23,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxext6 \
     libxrender1 \
     libpq-dev \
-    netcat \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 RUN ln -sf /usr/bin/python3.10 /usr/bin/python && \

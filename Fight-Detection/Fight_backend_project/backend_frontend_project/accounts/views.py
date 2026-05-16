@@ -18,6 +18,7 @@ from .models import LoginActivity, UserProfile
 
 def _safe_next_url(next_url):
     next_url = (next_url or "").strip()
+    prefix = settings.URL_PREFIX or ""
 
     if not next_url.startswith("/"):
         return ""
@@ -25,11 +26,11 @@ def _safe_next_url(next_url):
     if next_url.startswith("//"):
         return ""
 
-    if next_url.startswith("/admin/"):
-        return next_url
+    valid_paths = ["/admin/", "/dashboard/"]
 
-    if next_url.startswith("/dashboard/"):
-        return next_url
+    for vp in valid_paths:
+        if next_url.startswith(vp) or next_url.startswith(f"{prefix}{vp}"):
+            return next_url
 
     return ""
 
@@ -124,7 +125,7 @@ def _base_mail_template(title, description, button_text=None, button_url=None, e
 
 @never_cache
 def splash_view(request):
-    next_url = request.GET.get("next", "/dashboard/")
+    next_url = request.GET.get("next", f"{settings.URL_PREFIX}/dashboard/")
 
     return render(
         request,
@@ -138,11 +139,11 @@ def splash_view(request):
 @require_http_methods(["GET", "POST"])
 def login_view(request):
     next_url = _safe_next_url(
-        request.POST.get("next") or request.GET.get("next") or "/dashboard/"
+        request.POST.get("next") or request.GET.get("next") or f"{settings.URL_PREFIX}/dashboard/"
     )
 
     if request.user.is_authenticated:
-        return redirect("/dashboard/")
+        return redirect(f"{settings.URL_PREFIX}/dashboard/")
 
     error = None
 
@@ -174,7 +175,7 @@ def login_view(request):
                     if next_url:
                         return redirect(next_url)
 
-                    return redirect("/dashboard/")
+                    return redirect(f"{settings.URL_PREFIX}/dashboard/")
 
     return render(
         request,
@@ -190,11 +191,11 @@ def login_view(request):
 @require_http_methods(["GET", "POST"])
 def admin_login_view(request):
     next_url = _safe_next_url(
-        request.POST.get("next") or request.GET.get("next") or "/admin/"
+        request.POST.get("next") or request.GET.get("next") or f"{settings.URL_PREFIX}/admin/"
     )
 
     if request.user.is_authenticated:
-        return redirect("/admin/")
+        return redirect(f"{settings.URL_PREFIX}/admin/")
 
     error = None
 
@@ -233,7 +234,7 @@ def admin_login_view(request):
                     if next_url:
                         return redirect(next_url)
 
-                    return redirect("/admin/")
+                    return redirect(f"{settings.URL_PREFIX}/admin/")
 
     return render(
         request,
@@ -302,20 +303,43 @@ def logout_view(request):
 def account_settings(request):
     profile, created = UserProfile.objects.get_or_create(user=request.user)
 
-    account_form = AccountUpdateForm(
-        instance=request.user,
-        profile=profile,
-    )
+    if request.method == "POST" and "account_submit" in request.POST:
+        account_form = AccountUpdateForm(
+            request.POST,
+            instance=request.user,
+            profile=profile,
+        )
 
-    if request.method == "POST" and "password_submit" in request.POST:
-        password_form = CustomPasswordChangeForm(request.user, request.POST)
+        password_form = CustomPasswordChangeForm(request.user)
+
+        if account_form.is_valid():
+            account_form.save()
+            messages.success(request, "Hesap bilgileriniz başarıyla güncellendi.")
+            return redirect("accounts:account_settings")
+
+    elif request.method == "POST" and "password_submit" in request.POST:
+        account_form = AccountUpdateForm(
+            instance=request.user,
+            profile=profile,
+        )
+
+        password_form = CustomPasswordChangeForm(
+            request.user,
+            request.POST,
+        )
 
         if password_form.is_valid():
             user = password_form.save()
             update_session_auth_hash(request, user)
             messages.success(request, "Şifreniz başarıyla güncellendi.")
             return redirect("accounts:account_settings")
+
     else:
+        account_form = AccountUpdateForm(
+            instance=request.user,
+            profile=profile,
+        )
+
         password_form = CustomPasswordChangeForm(request.user)
 
     return render(

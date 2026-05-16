@@ -4,6 +4,8 @@ from collections import deque
 from dataclasses import dataclass, asdict
 from pathlib import Path
 import json
+import shutil
+import subprocess
 import time
 
 import cv2
@@ -67,6 +69,98 @@ class EvidenceWriter:
     def _stamp(self) -> str:
         return time.strftime("%Y%m%d_%H%M%S")
 
+
+    def _encode_mp4v_temp(self, path: Path, frames: list, fps: float, size: tuple[int, int]) -> bool:
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(str(path), fourcc, fps, size)
+
+        if not writer.isOpened():
+            return False
+
+        try:
+            for frame in frames:
+                writer.write(frame)
+        finally:
+            writer.release()
+
+        return path.exists() and path.stat().st_size > 0
+
+    def _convert_to_browser_mp4(self, src_path: Path, dst_path: Path) -> bool:
+        ffmpeg = shutil.which("ffmpeg")
+
+        if not ffmpeg:
+            return False
+
+        cmd = [
+            ffmpeg,
+            "-y",
+            "-loglevel",
+            "error",
+            "-i",
+            str(src_path),
+            "-vf",
+            "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-pix_fmt",
+            "yuv420p",
+            "-movflags",
+            "+faststart",
+            str(dst_path),
+        ]
+
+        try:
+            subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            return False
+
+        return dst_path.exists() and dst_path.stat().st_size > 0
+
+    def _write_clip(self, clip_path: Path, frames_with_idx: list[tuple[int, object]], frame_idx: int, frame_vis) -> None:
+        if not frames_with_idx:
+            return
+
+        frames = [fr for _, fr in frames_with_idx]
+
+        # Eğer buffer güncel frame'i henüz içermiyorsa son kareyi de ekle.
+        # İşlenmiş frame buffer kullanıldığında duplicate frame oluşmasın.
+        if frames_with_idx[-1][0] != frame_idx:
+            frames.append(frame_vis)
+
+        h, w = frames[0].shape[:2]
+        size = (int(w), int(h))
+
+        raw_path = clip_path.with_suffix(".raw.mp4")
+
+        try:
+            if raw_path.exists():
+                raw_path.unlink()
+            if clip_path.exists():
+                clip_path.unlink()
+        except Exception:
+            pass
+
+        if not self._encode_mp4v_temp(raw_path, frames, self.fps, size):
+            return
+
+        # Tarayıcılar mp4v codec'i çoğu zaman oynatmaz. Mümkünse H.264/yuv420p'e çevir.
+        if self._convert_to_browser_mp4(raw_path, clip_path):
+            try:
+                raw_path.unlink()
+            except Exception:
+                pass
+            return
+
+        # ffmpeg yoksa en azından eski davranış bozulmasın.
+        try:
+            raw_path.replace(clip_path)
+        except Exception:
+            pass
+
     def save_event(
         self,
         frame_idx: int,
@@ -98,16 +192,11 @@ class EvidenceWriter:
             frames = frame_buffer.get_from(start_frame)
 
             if frames:
-                h, w = frames[0][1].shape[:2]
-                clip_path = str(self.clip_dir / f"{base_name}.mp4")
-                fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-                writer = cv2.VideoWriter(clip_path, fourcc, self.fps, (w, h))
+                clip_file = self.clip_dir / f"{base_name}.mp4"
+                self._write_clip(clip_file, frames, frame_idx, frame_vis)
 
-                for _, fr in frames:
-                    writer.write(fr)
-
-                writer.write(frame_vis)
-                writer.release()
+                if clip_file.exists() and clip_file.stat().st_size > 0:
+                    clip_path = str(clip_file)
 
         x1, y1, x2, y2 = [int(v) for v in track.box]
 

@@ -25,7 +25,7 @@ function getCookie(name) {
   return cookieValue;
 }
 
-const csrfToken = getCookie("csrftoken");
+const csrfToken = getCookie("fight_csrftoken") || getCookie("csrftoken");
 
 function updateLiveStatusBadge(pipeline) {
   const badge = document.getElementById("live-status-badge");
@@ -166,7 +166,7 @@ function buildCard(camera) {
   const queueCapacity = camera.queue_capacity === "" ? "-" : camera.queue_capacity;
   const lastTs = camera.last_ts || "-";
 
-  const imageUrl = `/dashboard/stream/${encodeURIComponent(cameraId)}/`;
+  const imageUrl = `/fight-detection/dashboard/stream/${encodeURIComponent(cameraId)}/`;
 
   return `
     <div class="camera-card">
@@ -215,7 +215,7 @@ function buildEmptyState(message) {
 
 async function fetchStatus() {
   try {
-    const response = await fetch("/dashboard/status/");
+    const response = await fetch("/fight-detection/dashboard/status/");
 
     if (!response.ok) {
       if (cameraCards) {
@@ -276,7 +276,7 @@ async function startMonitoring() {
   try {
     if (startBtn) startBtn.disabled = true;
 
-    const response = await fetch("/dashboard/start/", {
+    const response = await fetch("/fight-detection/dashboard/start/", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -308,7 +308,7 @@ async function stopMonitoring() {
   try {
     if (stopBtn) stopBtn.disabled = true;
 
-    const response = await fetch("/dashboard/stop/", {
+    const response = await fetch("/fight-detection/dashboard/stop/", {
       method: "POST",
       headers: {
         "X-CSRFToken": csrfToken,

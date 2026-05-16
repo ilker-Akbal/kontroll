@@ -13,8 +13,15 @@ class RoadRoi:
 
 @dataclass
 class MeasurementConfig:
-    mode: str = "pixel_scale"
-    direction: str = "AUTO"
+    # Ürün akışında ana mod artık budur.
+    # Kullanıcı iki çizgi seçer ve gerçek mesafeyi metre olarak girer.
+    mode: str = "two_line_time_gate"
+
+    # A_TO_B: line_a başlangıç, line_b bitiş
+    # B_TO_A: line_b başlangıç, line_a bitiş
+    # AUTO: ilk geçilen çizgi başlangıç kabul edilir
+    direction: str = "A_TO_B"
+
     line_a: list[list[int]] = field(default_factory=list)
     line_b: list[list[int]] = field(default_factory=list)
     distance_m: float | None = None
@@ -22,10 +29,12 @@ class MeasurementConfig:
 
 @dataclass
 class ScaleConfig:
-    source: str = "auto_vehicle_size"
+    # Eski pixel_scale modu için geriye dönük destek.
+    # Yeni iki çizgili modda meter_per_pixel gerekmez.
+    source: str = "not_required"
     meter_per_pixel: float | None = None
-    confidence: float = 0.0
-    user_corrected: bool = False
+    confidence: float = 1.0
+    user_corrected: bool = True
 
 
 @dataclass
